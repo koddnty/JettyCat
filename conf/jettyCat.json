@@ -1,0 +1,12 @@
+{
+    "Permission_system" : {
+        "admin" : {
+            "permissions" : ["*"]
+        },
+        "user" : {
+            "permissions" : ["read", "write"]
+        },
+        "JWTKey" : "1397iausdh*^^^&46"
+    },
+    "user" : "oijoij"
+}

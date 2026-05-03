@@ -1,0 +1,20 @@
+
+{
+    "logs" : [
+        {
+            "name" : "jettyCat",
+            "level" : "INFO",
+            "appenders" : [
+                {
+                    "type" : "StdoutLogAppender",
+                    "level" : "INFO"
+                },
+                {
+                    "type" : "FileLogAppender",
+                    "file" : "./log/system_log.txt",
+                    "level" : "INFO"
+                }
+            ]
+        }
+    ]
+}

@@ -37,7 +37,18 @@ depcomp
 *.sln
 *.png
 *.jpg
-*.jpeg
+*.jpeg*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.ppt
+*.pptx
+*.zip
+*.tar.gz
+nginx.conf
+web/adminPages/source/*
+web/usrPages/source/*
 *.bmp
 *.gif
 *.pdf
@@ -49,3 +60,7 @@ depcomp
 *.pptx
 *.zip
 *.tar.gz
+nginx.conf
+web/adminPages/source/*
+web/usrPages/source/*
+*.sql
