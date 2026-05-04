@@ -4,6 +4,11 @@
 #include <openssl/hmac.h>
 
 static m_sylar::Logger::ptr j_logger = M_SYLAR_LOG_NAME("jettyCat");
+
+m_sylar::ConfigVar<std::string>::ptr jwtKey = 
+    m_sylar::ConfigManager::LookUp<std::string>("Permission_system.JWTKey", "1397iausdh*^^^&46", JettyCat_CONFIG_ID, "JWT密钥");
+
+
 // tools
 std::string RolePermissions::RoleToString(RolePermissions::Role role) {
     std::string result;
@@ -27,6 +32,7 @@ RolePermissions::Role RolePermissions::RoleFromString(std::string roleStr) {
     Role result = Role::UNKNOWN;
     while(end_pos != std::string::npos) {
         std::string role_part = roleStr.substr(begin_pos, end_pos - begin_pos);
+        std::transform(role_part.begin(), role_part.end(), role_part.begin(), ::toupper); // 去除空格
         if(role_part == "USER") {
             result = static_cast<Role>(result | Role::USER);
         } else if(role_part == "ADMIN") {
@@ -41,7 +47,6 @@ RolePermissions::Role RolePermissions::RoleFromString(std::string roleStr) {
     }
     return result;
 }
-
 
 
 // 生成JWT
@@ -60,8 +65,7 @@ std::string JWT::generateJWT(const std::string& username, RolePermissions::Role 
     std::string header_encoded = Encode::base64JWTEncode(header.dump());
     std::string payload_encoded = Encode::base64JWTEncode(payload.dump());
     std::string signature_input = header_encoded + "." + payload_encoded;
-    m_sylar::ConfigVar<std::string>::ptr jwtKey = 
-        m_sylar::ConfigManager::LookUp<std::string>("Permission_system.JWTKey", "1397iausdh*^^^&46", JettyCat_CONFIG_ID, "JWT密钥");
+
     std::string key = jwtKey->getValue();
 
     unsigned char signature[64];  // EVP_MAX_MD_SIZE
@@ -80,8 +84,94 @@ std::string JWT::generateJWT(const std::string& username, RolePermissions::Role 
 }
 
 bool JWT::verifyJWT(m_sylar::http::HttpSession::ptr session) {
-    
+    if(!session) {
+        M_SYLAR_LOG_ERROR(j_logger) << "Session is null";
+        return false;
+    }
+
+    std::string jwt = session->getRequest()->getCookie("jwttoken");
+    if(jwt.empty()) {
+        return false;   
+    }
+    std::stringstream ss(jwt);
+    std::string header_encoded, payload_encoded, signature_encoded;
+    if(!std::getline(ss, header_encoded, '.') ||
+       !std::getline(ss, payload_encoded, '.') ||
+       !std::getline(ss, signature_encoded)) {
+        return false;  
+    }
+
+    // 重新计算签名并比较
+    std::string key = jwtKey->getValue();
+    std::string signature_input = header_encoded + "." + payload_encoded;
+    unsigned char signature[64];  // EVP_MAX_MD_SIZE
+    unsigned int signature_len = sizeof(signature);
+
+    unsigned char* signatureptr = HMAC(EVP_sha256(), key.c_str(), key.size(), 
+                                reinterpret_cast<const unsigned char*>(signature_input.data()), 
+                                signature_input.size(), signature, &signature_len);
+    if(signatureptr == nullptr) {
+        M_SYLAR_LOG_ERROR(j_logger) << "HMAC calculation failed";
+        return false;
+    }
+    std::string cal_signature= Encode::base64JWTEncode(std::string(reinterpret_cast<char*>(signature), signature_len));
+
+    if(cal_signature != signature_encoded) {
+        return false;  
+    }
+    return true;
 }
+
+JWT::Header JWT::parserHeader(const std::string& jwt) {
+    std::stringstream ss(jwt);
+    std::string header_encoded;
+    if(!std::getline(ss, header_encoded, '.')) {
+        return JWT::Header();  
+    }
+    // M_SYLAR_LOG_INFO(j_logger) << "Parsing JWT header, encoded: " << header_encoded;
+    std::string header_json_str = Encode::base64JWTDecode(header_encoded);
+    nlohmann::json header_json;
+    try {
+        header_json = nlohmann::json::parse(header_json_str);
+    }
+    catch (const nlohmann::json::parse_error& e) {
+        
+        M_SYLAR_LOG_ERROR(j_logger) << "Failed to parse JWT header JSON: " << e.what()
+                                     << "\n header_json_str: " << header_json_str;
+        return JWT::Header();
+    }
+    JWT::Header header;
+    header.typ = header_json.value("typ", "");
+    header.alg = header_json.value("alg", "");
+    return header;
+}
+
+JWT::Payload JWT::parserPayload(const std::string& jwt) {
+    std::stringstream ss(jwt);
+    std::string payload_encoded;
+    if(!std::getline(ss, payload_encoded, '.') ||
+       !std::getline(ss, payload_encoded, '.')){
+        return JWT::Payload();  
+    }
+    // M_SYLAR_LOG_INFO(j_logger) << "Parsing JWT payload, encoded: " << payload_encoded;
+    std::string payload_json_str = Encode::base64JWTDecode(payload_encoded);
+    nlohmann::json payload_json;
+    try {
+        payload_json = nlohmann::json::parse(payload_json_str);
+    }
+    catch (const nlohmann::json::parse_error& e) {
+        M_SYLAR_LOG_ERROR(j_logger) << "Failed to parse JWT header JSON: " << e.what()
+                                             << "\n header_json_str: " << payload_json_str;
+        return JWT::Payload();
+    }
+    JWT::Payload payload;
+    payload.username = payload_json.value("username", "");
+    std::string role_str = payload_json.value("role", "UNKNOWN");
+    payload.role = RolePermissions::RoleFromString(role_str);
+    return payload;
+} 
+
+
 
 
 
@@ -108,6 +198,37 @@ std::string Encode::base64JWTEncode(const std::string &input) {
     result.erase(std::remove(result.begin(), result.end(), '='), result.end());
 
     return result;
+}
+std::string Encode::base64JWTDecode(const std::string& input) {
+    // 1. 转换回标准 Base64 格式
+    std::string standard = input;
+    for (char &c : standard) {
+        if (c == '-') c = '+';
+        else if (c == '_') c = '/';
+    }
+    size_t padding = (4 - (standard.size() % 4)) % 4;
+    standard.append(padding, '=');
+    
+    // 2. 解码
+    size_t decoded_len = (standard.size() * 3) / 4;
+    std::vector<unsigned char> buffer(decoded_len + 1);
+    
+    int out_len = EVP_DecodeBlock(buffer.data(), 
+                                  reinterpret_cast<const unsigned char*>(standard.data()), 
+                                  standard.size());
+    
+    if (out_len == -1) {
+        return "";
+    }
+    
+    // 3. 移除填充字节 - EVP_DecodeBlock 不会自动移除填充
+    // 计算实际的填充字符个数并从输出长度中减去
+    size_t padding_count = 0;
+    for (auto it = standard.rbegin(); it != standard.rend() && *it == '='; ++it) {
+        padding_count++;
+    }
+    
+    return std::string(reinterpret_cast<char*>(buffer.data()), out_len - padding_count);
 }
 std::string Encode::base64Encode(const std::string &input) {
         // 1. 估算编码后长度并分配缓冲区
@@ -139,7 +260,13 @@ std::string Encode::base64Decode(const std::string& input) {
         return "";
     }
     
-    return std::string(reinterpret_cast<char*>(buffer.data()), out_len);
+    // 3. 移除填充字节 - EVP_DecodeBlock 不会自动移除填充
+    // 计算实际的填充字符个数并从输出长度中减去
+    size_t padding_count = 0;
+    for (auto it = standard.rbegin(); it != standard.rend() && *it == '='; ++it) {
+        padding_count++;
+    }
+    return std::string(reinterpret_cast<char*>(buffer.data()), out_len - padding_count);
 }
 
 
@@ -162,4 +289,80 @@ int Hash::hashPBKDF2(const std::string& pw, std::string& passwd, std::string& sa
     salt_out = std::string(reinterpret_cast<char*>(salt), 16);
     return 0;
 }
+int Hash::hashPBKDF2WithSalt(const std::string &pw, std::string &passwd, const std::string &salt_out) {
+    // if(salt_out.size() != 16) {
+    //     M_SYLAR_LOG_ERROR(j_logger) << "Invalid salt length: " << salt_out.size();
+    //     return -1; // 无效的盐长度
+    // }
+    unsigned char salt[16], hash[32];
+    salt_out.copy(reinterpret_cast<char*>(salt), 16);
+
+    if(0 == PKCS5_PBKDF2_HMAC(pw.c_str(), pw.size(), 
+                    salt, 16, 100000, 
+                    EVP_sha256(), 32, hash)) {
+        return -1; // 密码哈希失败
+    }
+    
+    passwd = std::string(reinterpret_cast<char*>(hash), 32);
+    return 0;
+}
+
+// 直接返回数据库存储密码
+int Hash::generatePassword(const std::string& password, std::string& password_hash, std::string& salt) {
+    if(hashPBKDF2(password, password_hash, salt) == -1) {
+        M_SYLAR_LOG_ERROR(j_logger) << "Password hashing failed";
+        return -1;
+    }
+    password_hash = Encode::base64Encode(password_hash) + "," + Encode::base64Encode(salt);
+    return 0;
+}
+
+// 直接验证服务器存储密码
+// 明文密码 - 数据库存储密码（hash,salt）
+bool Hash::verifyPassword(const std::string& password, const std::string& password_hash) {
+    // 解析数据库存储的密码，提取哈希值和盐
+    size_t comma_pos = password_hash.find(',');
+    if(comma_pos == std::string::npos) {
+        M_SYLAR_LOG_ERROR(j_logger) << "Invalid password hash format : " << password_hash;
+        return false;
+    }
+    std::string hash_part = Encode::base64Decode(password_hash.substr(0, comma_pos));
+    std::string salt_part = Encode::base64Decode(password_hash.substr(comma_pos + 1));
+    // M_SYLAR_LOG_INFO(j_logger) << "hash_part: " << password_hash.substr(0, comma_pos) << ", salt_part: " << password_hash.substr(comma_pos + 1);
+    // M_SYLAR_LOG_INFO(j_logger) << "hash_part: " << hash_part << ", salt_part: " << salt_part;
+
+    // 盐长度剪切
+    // if(salt_part.size() > 16) {
+    //     salt_part = salt_part.substr(0, 16);
+    // }
+
+    // 计算输入密码的哈希值
+    std::string computed_hash;
+    if(hashPBKDF2WithSalt(password, computed_hash, salt_part) == -1) {
+        M_SYLAR_LOG_ERROR(j_logger) << "Password hashing failed during verification";
+        return false;
+    }
+
+    // 结果比较
+    // M_SYLAR_LOG_INFO(j_logger) << "Computed hash: " << Encode::base64Encode(computed_hash) << ", Stored hash: " << Encode::base64Encode(hash_part);
+    return computed_hash == hash_part;
+}
+
+
+
+bool TemplateHeader::CORSALL(m_sylar::http::HttpSession::ptr session) {
+    auto resp = session->getResponse();
+    resp->setHeader("Access-Control-Allow-Origin", "http://localhost:8806");
+    resp->setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    resp->setHeader("Access-Control-Allow-Headers", "Content-Type");
+    resp->setHeader("Access-Control-Max-Age", "86400");
+
+    if(session->getRequest()->getMethod() == m_sylar::http::HttpMethod::OPTIONS) {
+        resp->setStatus(m_sylar::http::HttpStatus::OK);
+        resp->setBody("");
+        return false;
+    }
+    return true;
+}
+
 

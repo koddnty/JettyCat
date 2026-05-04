@@ -16,6 +16,7 @@ void projectInit() {
     // 配置系统初始化
     m_sylar::ConfigManager::LoadJson(projectRoot().string() + "/conf/basic.json", 0);
     m_sylar::ConfigManager::LoadJson(projectRoot().string() + "/config.json", JettyCat_CONFIG_ID);
+
     // 数据库连接池初始化
     int rt = 1;
     m_sylar::DB::createMysqlPool(10, 25);
@@ -30,16 +31,32 @@ void projectInit() {
         M_SYLAR_LOG_ERROR(g_logger) << "redis database pool init failed";
         return;
     }
-    M_SYLAR_LOG_ERROR(g_logger) << "all database pool init SUCCESS";
+    M_SYLAR_LOG_INFO(g_logger) << "all database pool init SUCCESS";
 
 }
+
 
 void urlReg(m_sylar::http::HttpServer::ptr server)
 {   
     Register::RegisteUrl(server);
 }
 
+void test() {
+    M_SYLAR_LOG_INFO(g_logger) << "test JWT Decode";
+    nlohmann::json j;
+    j["username"] = "testuser";
+    j["role"] = "USER,ADMIN";
+    std::string origin = j.dump();
+    std::string encoded = Encode::base64JWTEncode(origin);
+    std::string decoded = Encode::base64JWTDecode(encoded);
+    M_SYLAR_LOG_INFO(g_logger) << "Original: " << origin;
+    M_SYLAR_LOG_INFO(g_logger) << "Encoded: " << encoded;
+    M_SYLAR_LOG_INFO(g_logger) << "Decoded: " << decoded;
+    return;
+}
+
 int main() {
+    test();
     m_sylar::IOManager iom("mainIOM", 4);
     m_sylar::http::HttpServer::ptr server(new m_sylar::http::HttpServer(&iom));
     m_sylar::Address::ptr addr = m_sylar::Address::LookupAnyIPAddress("0.0.0.0");

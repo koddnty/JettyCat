@@ -1,15 +1,9 @@
 #include "register.hpp"
-#include <cstdlib>   
-#include <ctime>    
+#include <cstdlib>
+#include <ctime>
 
 static m_sylar::Logger::ptr j_logger = M_SYLAR_LOG_NAME("jettyCat");
 using namespace m_sylar;
-
-
-
-
-
-
 
 
 
@@ -33,21 +27,45 @@ void Register::RegisteUrl(m_sylar::http::HttpServer::ptr server) {
         生成redis验证码，key为reg_code_时间戳，value为8位随机数，过期时间为时间戳
         time_limit：验证码过期时间，单位为秒，前端管理员传入。
 */
+// 获取注册验证码
 m_sylar::Task<void> Register::coGetRegCode(m_sylar::http::HttpSession::ptr session) {
     http::HttpRequest::ptr req = session->getRequest();
     http::HttpResponse::ptr resp = session->getResponse();
-    // 验证身份
-    M_SYLAR_LOG_INFO(j_logger) << req->getHeader("Cookie", "");
-    M_SYLAR_LOG_INFO(j_logger) <<  req->getCookie("Path", "");
-    M_SYLAR_LOG_INFO(j_logger) <<  req->getCookie("jwttoken", "");
+    if(!TemplateHeader::CORSALL(session)) {
+        co_return;
+    }
 
- 
+    // 验证身份
+    std::string jwt = req->getCookie("jwttoken", "");
+    JWT::Header header;
+    header = JWT::parserHeader(jwt);
+    if(jwt.empty() || !JWT::verifyJWT(session)) {
+        nlohmann::json j;
+        j["status"] = "failed";
+        j["error"] = "FORBIDDEN: Invalid or missing JWT token";
+        resp->setHeader("Content-Type", "application/json");
+        resp->setBody(j.dump());
+        resp->setStatus(http::HttpStatus::FORBIDDEN);
+        co_return;
+    }
+
+    JWT::Payload payload = JWT::parserPayload(jwt);
+    if(payload.role != RolePermissions::ADMIN) {
+        nlohmann::json j;
+        j["status"] = "failed";
+        j["error"] = "FORBIDDEN: Insufficient permissions : " + RolePermissions::RoleToString(payload.role);
+        resp->setHeader("Content-Type", "application/json");
+        resp->setBody(j.dump());
+        resp->setStatus(http::HttpStatus::FORBIDDEN);
+        co_return;
+    }
+
     // 获取请求参数
-    std::string time_limit = "time-limit"; 
-    std::string valid_times = "valid-times"; 
-    time_limit = req->getParam(time_limit); 
+    std::string time_limit = "time-limit";          // 验证码过期时间，单位为秒
+    std::string valid_times = "valid-times";        // 验证码有效次数，过期时间未到但已使用次数超过valid_times也会失效
+    time_limit = req->getParam(time_limit);
     valid_times = req->getParam(valid_times);
-    M_SYLAR_LOG_INFO(j_logger) << "generate one registe code" << std::endl;
+    // M_SYLAR_LOG_INFO(j_logger) << "generate one registe code" << std::endl;
 
     // 生成验证码并存入redis
     int num = rand() % 90000000 + 10000000;
@@ -63,15 +81,18 @@ m_sylar::Task<void> Register::coGetRegCode(m_sylar::http::HttpSession::ptr sessi
     co_return;
 }
 
-
 // 注册
 m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
     http::HttpRequest::ptr req = session->getRequest();
     http::HttpResponse::ptr resp = session->getResponse();
+    if(!TemplateHeader::CORSALL(session)) {
+        co_return;
+    }
+
     // 获取请求参数
-    std::string username = "username";
-    std::string password = "password";
-    std::string reg_code = "reg_code";
+    std::string username = "username";          // 用户名
+    std::string password = "password";          // 明文密码
+    std::string reg_code = "reg_code";          // 注册码（验证码）（coGetRegCode接口生成的验证码）
     username = req->getParam(username);
     password = req->getParam(password);
     reg_code = req->getParam(reg_code);
@@ -81,6 +102,7 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
         nlohmann::json j;
         j["status"] = "failed";
         j["error"] = "Missing required parameters";
+        resp->setHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
         resp->setStatus(http::HttpStatus::BAD_REQUEST);
         co_return;
@@ -89,6 +111,7 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
         nlohmann::json j;
         j["status"] = "failed";
         j["error"] = "Username or password too long";
+        resp->setHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
         resp->setStatus(http::HttpStatus::BAD_REQUEST);
         co_return;
@@ -97,6 +120,7 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
         nlohmann::json j;
         j["status"] = "failed";
         j["error"] = "Username must be at least 3 characters and password must be at least 6 characters";
+        resp->setHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
         resp->setStatus(http::HttpStatus::BAD_REQUEST);
         co_return;
@@ -105,7 +129,6 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
     // 验证验证码
     std::string cmd = "DECR reg_code_" + reg_code;
     RedisResp::ptr reply = co_await m_sylar::DB::Redis::getInstance()->executeQuery(cmd);
-    M_SYLAR_LOG_INFO(j_logger) << "redis reply" << reply->asString() << "  " << reply->asInt();
     if(reply->getState() != IOState::SUCCESS || reply->asInt() <= -1){
         reply = co_await m_sylar::DB::Redis::getInstance()->executeQuery("DEL reg_code_" + reg_code); // 删除过期或无效的验证码
         if(reply->getState() != IOState::SUCCESS){
@@ -114,6 +137,7 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
         nlohmann::json j;
         j["status"] = "failed";
         j["error"] = "Invalid registration code";
+        resp->setHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
         resp->setStatus(http::HttpStatus::BAD_REQUEST);
         co_return;
@@ -121,26 +145,36 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
 
     // 哈希密码并生成盐
     std::string hashed_password, salt;
-    if(Hash::hashPBKDF2(password, hashed_password, salt) == -1) {
+    // if(Hash::hashPBKDF2(password, hashed_password, salt) == -1) {
+    //     M_SYLAR_LOG_ERROR(j_logger) << "Password hashing failed";
+    //     nlohmann::json j;
+    //     j["status"] = "error";
+    //     j["error"] = "internal server error";
+    //     resp->setBody(j.dump());
+    //     resp->setStatus(http::HttpStatus::INTERNAL_SERVER_ERROR);
+    //     co_return;
+    // }
+    int rt = Hash::generatePassword(password, hashed_password, salt);
+    if(rt == -1) {
         M_SYLAR_LOG_ERROR(j_logger) << "Password hashing failed";
         nlohmann::json j;
         j["status"] = "error";
         j["error"] = "internal server error";
+        resp->setHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
         resp->setStatus(http::HttpStatus::INTERNAL_SERVER_ERROR);
         co_return;
     }
-    
-    std::string password_hash = Encode::base64Encode(hashed_password) + "," + Encode::base64Encode(salt); // 存储哈希值，盐单独存储
+    // std::string password_hash = hashed_password; // 存储哈希值，盐单独存储
 
     // 插入
     // std::cout << "hashed_password: " << hashed_password << std::endl;
-    std::string insert_user_query = "INSERT INTO users (username, password_hash, role) VALUES ('" + username + "', '" + password_hash + "', 'USER')";
+    std::string insert_user_query = "INSERT INTO users (username, password_hash, role) VALUES ('" + username + "', '" + hashed_password + "', 'USER')";
     MySQLResp::ptr insert_user_resp = co_await m_sylar::DB::Mysql::getInstance()->executeQuery(
         insert_user_query
     );
-    M_SYLAR_LOG_INFO(j_logger) << insert_user_query;
-    
+    // M_SYLAR_LOG_INFO(j_logger) << insert_user_query;
+
     if(insert_user_resp->getState() != IOState::SUCCESS) {
         nlohmann::json j;
         if(insert_user_resp->getState() == IOState::TIMEOUT) {
@@ -152,6 +186,7 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
             j["error"] = "Failed to register user, possibly due to duplicate username";
             resp->setStatus(http::HttpStatus::INTERNAL_SERVER_ERROR);
         }
+        resp->setHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
         co_return;
     }
@@ -161,49 +196,97 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
     nlohmann::json j;
     j["status"] = "success";
 
-    std::string cookie = "jwttoken=" + jwt + "; HttpOnly; Secure; SameSite=Strict; Path=/";
+    std::string cookie = "jwttoken=" + jwt + "; HttpOnly; SameSite=Strict; Path=/";
+    resp->setHeader("Content-Type", "application/json");
     resp->setHeader("Set-Cookie", cookie);
     resp->setBody(j.dump());
     co_return;
-}
-
+} 
 
 // 登陆
 m_sylar::Task<void> Register::coLogin(m_sylar::http::HttpSession::ptr session) {
     http::HttpRequest::ptr req = session->getRequest();
     http::HttpResponse::ptr resp = session->getResponse();
+    if(!TemplateHeader::CORSALL(session)) {
+        co_return;
+    }
+
+    
+
     // 获取请求参数
-    std::string username = "username";
-    std::string password = "password";
+    std::string username = "username";      // 用户名
+    std::string password = "password";          // 明文密码 
     username = req->getParam(username);
     password = req->getParam(password);
 
-    std::string hashed_password, salt;
-    if(Hash::hashPBKDF2(password, hashed_password, salt) == -1) {
-        M_SYLAR_LOG_ERROR(j_logger) << "Password hashing failed";
-        resp->setBody("Internal Server Error");
+
+    // std::string hashed_password, salt;
+    // if(Hash::hashPBKDF2(password, hashed_password, salt) == -1) {
+    //     M_SYLAR_LOG_ERROR(j_logger) << "Password hashing failed";
+    //     resp->setBody("Internal Server Error");
+    //     co_return;
+    // }
+    // // std::string password_hash = hashed_password + "," + salt; // 存储哈希值，盐单独存储
+    // std::string password_hash = Encode::base64Encode(hashed_password) + "," + Encode::base64Encode(salt);
+
+    // 密码、角色查询
+    std::string get_role_query = "SELECT role, password_hash FROM users WHERE username='" + username + "';";
+    // M_SYLAR_LOG_INFO(j_logger) << "execute sql: " << get_role_query;
+    MySQLResp::ptr role = co_await m_sylar::DB::Mysql::getInstance()->executeQuery(get_role_query);
+    // M_SYLAR_LOG_INFO(j_logger) << "foramtting database response";
+    role->formatDate();
+
+    if(role->getColCount() != 2) {
+        nlohmann::json j;
+        j["status"] = "error";
+        j["error"] = "Internal Server Error";
+        M_SYLAR_LOG_WARN(j_logger) <<  "Database query failed for user " << username << ": No columns returned";
+        resp->setHeader("Content-Type", "application/json");
+        resp->setBody(j.dump());
+        resp->setStatus(http::HttpStatus::INTERNAL_SERVER_ERROR);
         co_return;
     }
-    std::string password_hash = hashed_password + "," + salt; // 存储哈希值，盐单独存储
+    if(role->getRowCount() == 0) {
+        nlohmann::json j;
+        j["status"] = "failed";
+        j["error"] = "Invalid username or password";
+        resp->setHeader("Content-Type", "application/json");
+        resp->setBody(j.dump());
+        resp->setStatus(http::HttpStatus::UNAUTHORIZED);
+        co_return;
+    }
+    else if(role->getRowCount() > 1) {
+        nlohmann::json j;
+        j["status"] = "error";
+        j["error"] = "Internal Server Error";
+        M_SYLAR_LOG_FATAL(j_logger) <<  "Database query failed for user " << username << ": Multiple rows returned";
+        resp->setHeader("Content-Type", "application/json");
+        resp->setBody(j.dump());
+        resp->setStatus(http::HttpStatus::INTERNAL_SERVER_ERROR);
+        co_return;
+    }
 
-    std::string get_role_query = "SELECT role FROM users WHERE username='" + username + "' AND password_hash='" + password_hash + "'";
-    M_SYLAR_LOG_INFO(j_logger) << "execute sql: " << get_role_query;
-    MySQLResp::ptr role = co_await m_sylar::DB::Mysql::getInstance()->executeQuery(get_role_query);
-    M_SYLAR_LOG_INFO(j_logger) << "foramtting database response";
-    role->formatDate();
-        for(auto row = role->nextRow(); row; row = role->nextRow()) {
-            for(auto value = row.nextValue(); value; value = row.nextValue()) {
-                std::cout << value.get() << " ";
-            }
-            std::cout << std::endl;
-        }
-        std::cout << "------------------" << std::endl;
-        role->resetRow();
-
-    std::string role_val = (*role)["role"][0]; 
-    M_SYLAR_LOG_INFO(j_logger) << "user " << username << " login with role " << role_val;
-
-    resp->setBody(JWT::generateJWT(username, RolePermissions::RoleFromString(role_val)));
+    // 验证密码
+    std::string role_val = (*role)["role"][0];
+    std::string stored_password_hash = (*role)["password_hash"][0];
+    // M_SYLAR_LOG_INFO(j_logger) << "Retrieved role: " << role_val << " and password hash for user " << username;
+    if(false == Hash::verifyPassword(password, stored_password_hash)) {
+        nlohmann::json j;
+        j["status"] = "failed";
+        j["error"] = "Invalid username or password";
+        resp->setHeader("Content-Type", "application/json");
+        resp->setBody(j.dump());
+        resp->setStatus(http::HttpStatus::UNAUTHORIZED);
+        co_return;
+    }
+    // M_SYLAR_LOG_INFO(j_logger) << "user " << username << " login with role " << role_val;
+    nlohmann::json j;
+    j["status"] = "success";
+    std::string jwt = JWT::generateJWT(username, RolePermissions::RoleFromString(role_val));
+    std::string cookie = "jwttoken=" + jwt + "; HttpOnly; SameSite=Strict; Path=/";
+    resp->setHeader("Content-Type", "application/json");
+    resp->setHeader("Set-Cookie", cookie);
+    resp->setBody(j.dump());
     co_return;
 }
 

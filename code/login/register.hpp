@@ -16,7 +16,7 @@ public:
 public:
     static void RegisteUrl(m_sylar::http::HttpServer::ptr server);
 
-    // 测试连通性
+    // 测试连通性 
     static m_sylar::Task<void> test(m_sylar::http::HttpSession::ptr session) {
         std::cout << "HelloWrold!" << std::endl;
         session->getResponse()->setBody("HelloWrold!");

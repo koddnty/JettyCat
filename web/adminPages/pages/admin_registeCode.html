@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>管理 - 生成注册码</title>
+  <style>
+    :root{--bg:#0f1720;--card:#0b1220;--accent:#06b6d4;--muted:#9ca3af;--text:#e6eef6}
+    html,body{height:100%;margin:0;font-family:Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text)}
+    .wrap{max-width:520px;margin:48px auto;padding:20px}
+    .card{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));border:1px solid rgba(255,255,255,0.03);padding:18px;border-radius:8px}
+    h1{font-size:18px;margin:0 0 10px}
+    p.lead{margin:0 0 16px;color:var(--muted);font-size:13px}
+    .row{display:flex;gap:8px;margin-bottom:10px}
+    label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px}
+    input[type="number"],input[type="text"]{flex:1;padding:10px;border-radius:6px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--text);outline:none}
+    .controls{display:flex;gap:8px;margin-top:12px}
+    button{background:var(--accent);border:none;color:#042027;padding:10px 12px;border-radius:6px;cursor:pointer}
+    button.secondary{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--text)}
+    .result{margin-top:14px;padding:12px;border-radius:6px;background:#071017;border:1px solid rgba(255,255,255,0.03);display:flex;align-items:center;justify-content:space-between}
+    .result .code{font-family:monospace;background:rgba(255,255,255,0.02);padding:6px 8px;border-radius:4px;color:var(--accent)}
+    .msg{margin-top:10px;color:var(--muted);font-size:13px}
+    .small{font-size:12px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>生成注册码</h1>
+      <p class="lead">为管理员生成一次性注册码。前端会把请求以同源的方式发到 /api/registe/getRegCode，浏览器会自动带上 HttpOnly 的认证 cookie。</p>
+
+      <div class="row">
+        <div style="flex:1">
+          <label>过期时间（秒）</label>
+          <input id="timeLimit" type="number" min="60" value="3600">
+        </div>
+        <div style="width:120px">
+          <label>有效次数</label>
+          <input id="validTimes" type="number" min="1" value="1">
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="generate">生成</button>
+        <button id="clear" class="secondary">清除</button>
+      </div>
+
+      <div id="outputArea" style="display:none">
+        <div class="result">
+          <div>
+            <div class="small">注册码</div>
+            <div class="code" id="code">—</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button id="copy">复制</button>
+          </div>
+        </div>
+        <div class="msg" id="msg"></div>
+      </div>
+
+      <div class="msg">说明：注册码形如 8 位数字。生成失败时会显示错误信息。</div>
+    </div>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    const genBtn = $('generate');
+    const clearBtn = $('clear');
+    const copyBtn = $('copy');
+    const codeEl = $('code');
+    const outputArea = $('outputArea');
+    const msg = $('msg');
+
+    function showResult(codeText, info) {
+      codeEl.textContent = codeText;
+      outputArea.style.display = 'block';
+      msg.textContent = info || '';
+    }
+
+    genBtn.addEventListener('click', async () => {
+      msg.textContent = '';
+      const timeLimit = $('timeLimit').value || '3600';
+      const validTimes = $('validTimes').value || '1';
+      genBtn.disabled = true;
+      genBtn.textContent = '生成中...';
+      try {
+        const params = new URLSearchParams({ 'time-limit': timeLimit, 'valid-times': validTimes });
+        const res = await fetch('/api/registe/getRegCode?' + params.toString(), { method: 'GET', credentials: 'include' });
+        const text = await res.text();
+        if(!res.ok) {
+          try { const j = JSON.parse(text); showResult('—', j.error || '生成失败'); }
+          catch(e){ showResult('—', text || '生成失败'); }
+        } else {
+          // expected plain body with the code number or 'timeout'
+          if(text.trim() === 'timeout') {
+            showResult('—', 'Redis 请求超时');
+          } else {
+            showResult(text.trim(), '生成成功');
+          }
+        }
+      } catch(err) {
+        showResult('—', '网络错误或服务器无法访问');
+      } finally {
+        genBtn.disabled = false;
+        genBtn.textContent = '生成';
+      }
+    });
+
+    clearBtn.addEventListener('click', () => {
+      $('timeLimit').value = 3600;
+      $('validTimes').value = 1;
+      outputArea.style.display = 'none';
+      msg.textContent = '';
+    });
+
+    copyBtn.addEventListener('click', async () => {
+      const text = codeEl.textContent.trim();
+      if(!text || text === '—') return;
+      try{ await navigator.clipboard.writeText(text); msg.textContent = '已复制到剪贴板'; }
+      catch(e){ msg.textContent = '复制失败，请手动复制'; }
+    });
+  </script>
+</body>
+</html>
