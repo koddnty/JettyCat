@@ -8,7 +8,7 @@ using namespace m_sylar;
 
 
 // interface
-void Register::RegisteUrl(m_sylar::http::HttpServer::ptr server) {
+void Register::registeUrl(m_sylar::http::HttpServer::ptr server) {
     srand((unsigned)time(NULL));
     if(server == nullptr)
     {
@@ -29,23 +29,25 @@ void Register::RegisteUrl(m_sylar::http::HttpServer::ptr server) {
 */
 // 获取注册验证码
 m_sylar::Task<void> Register::coGetRegCode(m_sylar::http::HttpSession::ptr session) {
-    http::HttpRequest::ptr req = session->getRequest();
-    http::HttpResponse::ptr resp = session->getResponse();
+    http::Request::ptr req = session->getRequest();
+    http::Response::ptr resp = session->getResponse();
     if(!TemplateHeader::CORSALL(session)) {
+        co_await session->co_sendResp();
         co_return;
     }
 
     // 验证身份
-    std::string jwt = req->getCookie("jwttoken", "");
+    std::string jwt = req->getCookie("jwttoken");
     JWT::Header header;
     header = JWT::parserHeader(jwt);
     if(jwt.empty() || !JWT::verifyJWT(session)) {
         nlohmann::json j;
         j["status"] = "failed";
         j["error"] = "FORBIDDEN: Invalid or missing JWT token";
-        resp->setHeader("Content-Type", "application/json");
+        resp->appendHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
-        resp->setStatus(http::HttpStatus::FORBIDDEN);
+        resp->setStatus(http::StatusCode::forbidden);
+        co_await session->co_sendResp();
         co_return;
     }
 
@@ -54,15 +56,17 @@ m_sylar::Task<void> Register::coGetRegCode(m_sylar::http::HttpSession::ptr sessi
         nlohmann::json j;
         j["status"] = "failed";
         j["error"] = "FORBIDDEN: Insufficient permissions : " + RolePermissions::RoleToString(payload.role);
-        resp->setHeader("Content-Type", "application/json");
+        resp->appendHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
-        resp->setStatus(http::HttpStatus::FORBIDDEN);
+        resp->setStatus(http::StatusCode::forbidden);
+        co_await session->co_sendResp();
         co_return;
     }
 
     // 获取请求参数
     std::string time_limit = "time-limit";          // 验证码过期时间，单位为秒
     std::string valid_times = "valid-times";        // 验证码有效次数，过期时间未到但已使用次数超过valid_times也会失效
+    std::string uri = req->getUri();
     time_limit = req->getParam(time_limit);
     valid_times = req->getParam(valid_times);
     // M_SYLAR_LOG_INFO(j_logger) << "generate one registe code" << std::endl;
@@ -78,14 +82,16 @@ m_sylar::Task<void> Register::coGetRegCode(m_sylar::http::HttpSession::ptr sessi
     else if(reply->getState() == IOState::TIMEOUT){
         resp->setBody("timeout");
     }
+    co_await session->co_sendResp();
     co_return;
 }
 
 // 注册
 m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
-    http::HttpRequest::ptr req = session->getRequest();
-    http::HttpResponse::ptr resp = session->getResponse();
+    http::Request::ptr req = session->getRequest();
+    http::Response::ptr resp = session->getResponse();
     if(!TemplateHeader::CORSALL(session)) {
+        co_await session->co_sendResp();
         co_return;
     }
 
@@ -102,27 +108,30 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
         nlohmann::json j;
         j["status"] = "failed";
         j["error"] = "Missing required parameters";
-        resp->setHeader("Content-Type", "application/json");
+        resp->appendHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
-        resp->setStatus(http::HttpStatus::BAD_REQUEST);
+        resp->setStatus(http::StatusCode::bad_request);
+        co_await session->co_sendResp();
         co_return;
     }
     if(username.size() > 32 || password.size() > 32) {
         nlohmann::json j;
         j["status"] = "failed";
         j["error"] = "Username or password too long";
-        resp->setHeader("Content-Type", "application/json");
+        resp->appendHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
-        resp->setStatus(http::HttpStatus::BAD_REQUEST);
+        resp->setStatus(http::StatusCode::bad_request);
+        co_await session->co_sendResp();
         co_return;
     }
     if(username.size() < 3 || password.size() < 6) {
         nlohmann::json j;
         j["status"] = "failed";
         j["error"] = "Username must be at least 3 characters and password must be at least 6 characters";
-        resp->setHeader("Content-Type", "application/json");
+        resp->appendHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
-        resp->setStatus(http::HttpStatus::BAD_REQUEST);
+        resp->setStatus(http::StatusCode::bad_request);
+        co_await session->co_sendResp();
         co_return;
     }
 
@@ -137,9 +146,10 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
         nlohmann::json j;
         j["status"] = "failed";
         j["error"] = "Invalid registration code";
-        resp->setHeader("Content-Type", "application/json");
+        resp->appendHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
-        resp->setStatus(http::HttpStatus::BAD_REQUEST);
+        resp->setStatus(http::StatusCode::bad_request);
+        co_await session->co_sendResp();
         co_return;
     }
 
@@ -151,7 +161,7 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
     //     j["status"] = "error";
     //     j["error"] = "internal server error";
     //     resp->setBody(j.dump());
-    //     resp->setStatus(http::HttpStatus::INTERNAL_SERVER_ERROR);
+    //     resp->setStatus(http::StatusCode::internal_server_error);
     //     co_return;
     // }
     int rt = Hash::generatePassword(password, hashed_password, salt);
@@ -160,9 +170,10 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
         nlohmann::json j;
         j["status"] = "error";
         j["error"] = "internal server error";
-        resp->setHeader("Content-Type", "application/json");
+        resp->appendHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
-        resp->setStatus(http::HttpStatus::INTERNAL_SERVER_ERROR);
+        resp->setStatus(http::StatusCode::internal_server_error);
+        co_await session->co_sendResp();
         co_return;
     }
     // std::string password_hash = hashed_password; // 存储哈希值，盐单独存储
@@ -180,14 +191,15 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
         if(insert_user_resp->getState() == IOState::TIMEOUT) {
             j["status"] = "error";
             j["error"] = "Internal Server Error";
-            resp->setStatus(http::HttpStatus::INTERNAL_SERVER_ERROR);
+            resp->setStatus(http::StatusCode::internal_server_error);
         } else {
             j["status"] = "failed";
             j["error"] = "Failed to register user, possibly due to duplicate username";
-            resp->setStatus(http::HttpStatus::INTERNAL_SERVER_ERROR);
+            resp->setStatus(http::StatusCode::internal_server_error);
         }
-        resp->setHeader("Content-Type", "application/json");
+        resp->appendHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
+        co_await session->co_sendResp();
         co_return;
     }
 
@@ -197,25 +209,25 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
     j["status"] = "success";
 
     std::string cookie = "jwttoken=" + jwt + "; HttpOnly; SameSite=Strict; Path=/";
-    resp->setHeader("Content-Type", "application/json");
-    resp->setHeader("Set-Cookie", cookie);
+    resp->appendHeader("Content-Type", "application/json");
+    resp->appendHeader("Set-Cookie", cookie);
     resp->setBody(j.dump());
+    co_await session->co_sendResp();
     co_return;
 } 
 
 // 登陆
 m_sylar::Task<void> Register::coLogin(m_sylar::http::HttpSession::ptr session) {
-    http::HttpRequest::ptr req = session->getRequest();
-    http::HttpResponse::ptr resp = session->getResponse();
+    http::Request::ptr req = session->getRequest();
+    http::Response::ptr resp = session->getResponse();
     if(!TemplateHeader::CORSALL(session)) {
+        co_await session->co_sendResp();
         co_return;
     }
 
-    
-
     // 获取请求参数
-    std::string username = "username";      // 用户名
-    std::string password = "password";          // 明文密码 
+    std::string username = "username";              // 用户名
+    std::string password = "password";              // 明文密码 
     username = req->getParam(username);
     password = req->getParam(password);
 
@@ -241,18 +253,20 @@ m_sylar::Task<void> Register::coLogin(m_sylar::http::HttpSession::ptr session) {
         j["status"] = "error";
         j["error"] = "Internal Server Error";
         M_SYLAR_LOG_WARN(j_logger) <<  "Database query failed for user " << username << ": No columns returned";
-        resp->setHeader("Content-Type", "application/json");
+        resp->appendHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
-        resp->setStatus(http::HttpStatus::INTERNAL_SERVER_ERROR);
+        resp->setStatus(http::StatusCode::internal_server_error);
+        co_await session->co_sendResp();
         co_return;
     }
     if(role->getRowCount() == 0) {
         nlohmann::json j;
         j["status"] = "failed";
         j["error"] = "Invalid username or password";
-        resp->setHeader("Content-Type", "application/json");
+        resp->appendHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
-        resp->setStatus(http::HttpStatus::UNAUTHORIZED);
+        resp->setStatus(http::StatusCode::internal_server_error);
+        co_await session->co_sendResp();
         co_return;
     }
     else if(role->getRowCount() > 1) {
@@ -260,9 +274,10 @@ m_sylar::Task<void> Register::coLogin(m_sylar::http::HttpSession::ptr session) {
         j["status"] = "error";
         j["error"] = "Internal Server Error";
         M_SYLAR_LOG_FATAL(j_logger) <<  "Database query failed for user " << username << ": Multiple rows returned";
-        resp->setHeader("Content-Type", "application/json");
+        resp->appendHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
-        resp->setStatus(http::HttpStatus::INTERNAL_SERVER_ERROR);
+        resp->setStatus(http::StatusCode::internal_server_error);
+        co_await session->co_sendResp();
         co_return;
     }
 
@@ -274,9 +289,10 @@ m_sylar::Task<void> Register::coLogin(m_sylar::http::HttpSession::ptr session) {
         nlohmann::json j;
         j["status"] = "failed";
         j["error"] = "Invalid username or password";
-        resp->setHeader("Content-Type", "application/json");
+        resp->appendHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
-        resp->setStatus(http::HttpStatus::UNAUTHORIZED);
+        resp->setStatus(http::StatusCode::unauthorized);
+        co_await session->co_sendResp();
         co_return;
     }
     // M_SYLAR_LOG_INFO(j_logger) << "user " << username << " login with role " << role_val;
@@ -284,9 +300,10 @@ m_sylar::Task<void> Register::coLogin(m_sylar::http::HttpSession::ptr session) {
     j["status"] = "success";
     std::string jwt = JWT::generateJWT(username, RolePermissions::RoleFromString(role_val));
     std::string cookie = "jwttoken=" + jwt + "; HttpOnly; SameSite=Strict; Path=/";
-    resp->setHeader("Content-Type", "application/json");
-    resp->setHeader("Set-Cookie", cookie);
+    resp->appendHeader("Content-Type", "application/json");
+    resp->appendHeader("Set-Cookie", cookie);
     resp->setBody(j.dump());
+    co_await session->co_sendResp();
     co_return;
 }
 

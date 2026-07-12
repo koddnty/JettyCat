@@ -1,5 +1,21 @@
 {
-    "Permission_system" : {
+    "mysql" : {
+        "host" : "localhost",
+        "port" : 3306,
+        "user" : "koddnty",
+        "password" : "73256",
+        "database" : "JettyCat",
+        "minConnectionNum" : 10,
+        "maxConnectionNum" : 25
+    },
+    "redis" : {
+        "host" : "localhost",
+        "port" : 6379,
+        "minConnectionNum" : 1,
+        "maxConnectionNum" : 5
+    },
+    "permission_system" : {
+        "key" : "jwttoken",
         "admin" : {
             "permissions" : ["*"]
         },
@@ -7,6 +23,5 @@
             "permissions" : ["read", "write"]
         },
         "JWTKey" : "1397iausdh*^^^&46"
-    },
-    "user" : "oijoij"
+    }
 }

@@ -122,6 +122,42 @@ bool JWT::verifyJWT(m_sylar::http::HttpSession::ptr session) {
     return true;
 }
 
+bool JWT::verifyJWT(const std::string& jwt) {
+    if(jwt.empty()) {
+        return false;   
+    }
+    std::stringstream ss(jwt);
+    std::string header_encoded, payload_encoded, signature_encoded;
+    if(!std::getline(ss, header_encoded, '.') ||
+       !std::getline(ss, payload_encoded, '.') ||
+       !std::getline(ss, signature_encoded)) {
+        return false;  
+    }
+
+    // 重新计算签名并比较
+    std::string key = jwtKey->getValue();
+    std::string signature_input = header_encoded + "." + payload_encoded;
+    unsigned char signature[64];  // EVP_MAX_MD_SIZE
+    unsigned int signature_len = sizeof(signature);
+
+    unsigned char* signatureptr = HMAC(EVP_sha256(), key.c_str(), key.size(), 
+                                reinterpret_cast<const unsigned char*>(signature_input.data()), 
+                                signature_input.size(), signature, &signature_len);
+    if(signatureptr == nullptr) {
+        M_SYLAR_LOG_ERROR(j_logger) << "HMAC calculation failed";
+        return false;
+    }
+    std::string cal_signature= Encode::base64JWTEncode(std::string(reinterpret_cast<char*>(signature), signature_len));
+
+    if(cal_signature != signature_encoded) {
+        return false;  
+    }
+    return true;
+}
+
+
+
+// 获得jwt头部
 JWT::Header JWT::parserHeader(const std::string& jwt) {
     std::stringstream ss(jwt);
     std::string header_encoded;
@@ -146,6 +182,7 @@ JWT::Header JWT::parserHeader(const std::string& jwt) {
     return header;
 }
 
+// 获得jwt负载
 JWT::Payload JWT::parserPayload(const std::string& jwt) {
     std::stringstream ss(jwt);
     std::string payload_encoded;
@@ -352,13 +389,13 @@ bool Hash::verifyPassword(const std::string& password, const std::string& passwo
 
 bool TemplateHeader::CORSALL(m_sylar::http::HttpSession::ptr session) {
     auto resp = session->getResponse();
-    resp->setHeader("Access-Control-Allow-Origin", "http://localhost:8806");
-    resp->setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    resp->setHeader("Access-Control-Allow-Headers", "Content-Type");
-    resp->setHeader("Access-Control-Max-Age", "86400");
+    resp->appendHeader("Access-Control-Allow-Origin", "http://localhost:8806");
+    resp->appendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    resp->appendHeader("Access-Control-Allow-Headers", "Content-Type");
+    resp->appendHeader("Access-Control-Max-Age", "86400");
 
-    if(session->getRequest()->getMethod() == m_sylar::http::HttpMethod::OPTIONS) {
-        resp->setStatus(m_sylar::http::HttpStatus::OK);
+    if(session->getRequest()->getMethod() == m_sylar::http::toString(m_sylar::http::Method::OPTIONS)) {
+        resp->setStatus(m_sylar::http::StatusCode::ok);
         resp->setBody("");
         return false;
     }

@@ -12,149 +12,116 @@
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
-            padding: 18px;
-            color: #e5eefc;
-            background:
-                radial-gradient(circle at top left, rgba(34, 211, 238, 0.22), transparent 26%),
-                radial-gradient(circle at right center, rgba(168, 85, 247, 0.18), transparent 28%),
-                linear-gradient(160deg, #07111f 0%, #0b1426 48%, #111a2d 100%);
-        }
-
-        .shell {
-            width: 100%;
-            max-width: 1040px;
-            display: grid;
-            grid-template-columns: 1.1fr 0.9fr;
+            padding: 20px;
             overflow: hidden;
-            border-radius: 26px;
-            border: 1px solid rgba(148, 163, 184, 0.16);
-            background: rgba(7, 17, 31, 0.72);
-            box-shadow: 0 30px 90px rgba(0, 0, 0, 0.45);
-            backdrop-filter: blur(18px);
-            animation: rise 0.35s ease-out;
+            color: #1a1a2e;
+            background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%);
         }
 
-        @keyframes rise {
-            from { opacity: 0; transform: translateY(-24px); }
-            to { opacity: 1; transform: translateY(0); }
+        #canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
         }
 
-        .hero {
-            padding: 46px;
-            border-right: 1px solid rgba(148, 163, 184, 0.12);
-            background: linear-gradient(180deg, rgba(14, 26, 45, 0.94), rgba(8, 16, 29, 0.94));
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            gap: 28px;
+        .login-container {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 420px;
         }
 
-        .brand {
-            display: inline-flex;
-            align-items: center;
-            padding: 10px 14px;
-            border-radius: 999px;
-            width: fit-content;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            background: rgba(255, 255, 255, 0.04);
-            color: #9be7ff;
+        .login-card {
+            padding: 48px 40px;
+            border-radius: 24px;
+            background: rgba(255, 255, 255, 0.75);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.08),
+                0 2px 8px rgba(0, 0, 0, 0.04),
+                inset 0 1px 0 rgba(255, 255, 255, 0.8);
+            animation: fadeInUp 0.5s ease-out;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .logo-area {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .logo {
             font-size: 12px;
-            letter-spacing: 0.12em;
+            letter-spacing: 0.2em;
             text-transform: uppercase;
-        }
-
-        .hero h1 {
-            margin-top: 18px;
-            font-size: clamp(32px, 5vw, 48px);
-            line-height: 1.08;
-            color: #f8fbff;
-        }
-
-        .hero p {
-            margin-top: 16px;
-            max-width: 30rem;
-            color: rgba(226, 232, 240, 0.78);
-            line-height: 1.75;
-            font-size: 15px;
-        }
-
-        .signals {
-            display: grid;
-            gap: 14px;
-        }
-
-        .signal {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 14px 16px;
-            border-radius: 16px;
-            background: rgba(15, 23, 42, 0.7);
-            border: 1px solid rgba(148, 163, 184, 0.12);
-            color: #dbeafe;
-        }
-
-        .signal-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 999px;
-            background: linear-gradient(135deg, #22d3ee, #a855f7);
-            box-shadow: 0 0 18px rgba(34, 211, 238, 0.55);
-            flex-shrink: 0;
-        }
-
-        .login {
-            padding: 46px 42px;
-            background: rgba(7, 17, 31, 0.58);
+            color: #6b7280;
+            font-weight: 600;
         }
 
         .login-head {
-            margin-bottom: 24px;
+            text-align: center;
+            margin-bottom: 32px;
         }
 
-        .login-head h2 {
+        .login-head h1 {
             font-size: 28px;
-            color: #f8fbff;
+            font-weight: 700;
+            color: #111827;
             margin-bottom: 8px;
+            letter-spacing: -0.02em;
         }
 
         .login-head p {
-            color: #94a3b8;
-            font-size: 14px;
+            color: #6b7280;
+            font-size: 15px;
         }
 
         .mode-switch {
             display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            padding: 6px;
+            gap: 8px;
+            margin-bottom: 24px;
+            padding: 4px;
             border-radius: 16px;
-            background: rgba(15, 23, 42, 0.6);
-            border: 1px solid rgba(148, 163, 184, 0.12);
+            background: rgba(15, 23, 42, 0.05);
+            border: 1px solid rgba(148, 163, 184, 0.15);
         }
 
         .mode-btn {
             flex: 1;
             border: none;
             border-radius: 12px;
-            padding: 11px 14px;
+            padding: 12px 16px;
             background: transparent;
-            color: #94a3b8;
+            color: #6b7280;
             font-size: 14px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.25s ease;
+            transition: all 0.3s ease;
         }
 
         .mode-btn.active {
-            background: linear-gradient(135deg, rgba(34, 211, 238, 0.22), rgba(168, 85, 247, 0.22));
-            color: #f8fbff;
-            box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.14);
+            background: white;
+            color: #111827;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
         }
 
         .form-panel {
@@ -163,68 +130,110 @@
 
         .form-panel.active {
             display: block;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .alert {
             display: none;
-            margin-bottom: 18px;
+            margin-bottom: 16px;
             padding: 12px 14px;
-            border-radius: 14px;
+            border-radius: 12px;
             font-size: 14px;
         }
 
         .alert.show {
             display: block;
+            animation: alertFade 0.3s ease-out;
+        }
+
+        @keyframes alertFade {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .alert-error {
-            background: rgba(127, 29, 29, 0.36);
-            color: #fecaca;
-            border: 1px solid rgba(248, 113, 113, 0.28);
+            background: rgba(239, 68, 68, 0.08);
+            color: #dc2626;
+            border: 1px solid rgba(239, 68, 68, 0.2);
         }
 
         .alert-success {
-            background: rgba(6, 78, 59, 0.36);
-            color: #bbf7d0;
-            border: 1px solid rgba(52, 211, 153, 0.28);
+            background: rgba(34, 197, 94, 0.08);
+            color: #16a34a;
+            border: 1px solid rgba(34, 197, 94, 0.2);
         }
 
         .form-group {
-            margin-bottom: 18px;
+            margin-bottom: 20px;
         }
 
         label {
             display: block;
             margin-bottom: 8px;
-            color: #cbd5e1;
-            font-size: 14px;
+            color: #374151;
+            font-size: 13px;
             font-weight: 500;
+            letter-spacing: 0.01em;
         }
 
         input[type="text"],
         input[type="password"] {
             width: 100%;
-            padding: 13px 15px;
-            border: 1px solid rgba(148, 163, 184, 0.2);
+            padding: 14px 16px;
+            border: 1px solid rgba(148, 163, 184, 0.3);
             border-radius: 14px;
-            background: rgba(15, 23, 42, 0.88);
-            color: #f8fbff;
-            font-size: 14px;
+            background: rgba(255, 255, 255, 0.8);
+            color: #111827;
+            font-size: 15px;
             transition: all 0.3s ease;
         }
 
-        .pw-wrap{position:relative}
-        .eye-btn{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:#94a3b8;cursor:pointer;padding:6px;border-radius:6px}
-        .eye-btn:focus{outline:2px solid rgba(34,211,238,0.14)}
+        .pw-wrap {
+            position: relative;
+        }
+
+        .eye-btn {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: transparent;
+            border: none;
+            color: #9ca3af;
+            cursor: pointer;
+            padding: 6px;
+            border-radius: 8px;
+            transition: color 0.2s ease;
+        }
+
+        .eye-btn:hover {
+            color: #6b7280;
+        }
+
+        .eye-btn:focus {
+            outline: 2px solid rgba(147, 51, 234, 0.2);
+        }
 
         input::placeholder {
-            color: #64748b;
+            color: #9ca3af;
         }
 
         input:focus {
             outline: none;
-            border-color: rgba(34, 211, 238, 0.9);
-            box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.14);
+            border-color: rgba(147, 51, 234, 0.5);
+            box-shadow: 0 0 0 3px rgba(147, 51, 234, 0.08);
+            background: rgba(255, 255, 255, 0.95);
         }
 
         .button-group {
@@ -233,20 +242,27 @@
 
         .login-btn {
             width: 100%;
-            padding: 13px;
+            padding: 14px;
             border: none;
             border-radius: 14px;
-            background: linear-gradient(135deg, #22d3ee 0%, #a855f7 100%);
+            background: linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #ec4899 100%);
+            background-size: 200% 200%;
             color: white;
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.4s ease;
+            box-shadow: 0 4px 16px rgba(147, 51, 234, 0.3);
         }
 
         .login-btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 14px 28px rgba(34, 211, 238, 0.18);
+            box-shadow: 0 8px 24px rgba(147, 51, 234, 0.4);
+            background-position: 100% 0;
+        }
+
+        .login-btn:active {
+            transform: translateY(0);
         }
 
         .login-btn:disabled {
@@ -275,70 +291,55 @@
         }
 
         .footer {
-            margin-top: 20px;
+            margin-top: 24px;
             text-align: center;
-            color: #94a3b8;
+            color: #6b7280;
             font-size: 14px;
         }
 
         .footer a {
-            color: #7dd3fc;
+            color: #7c3aed;
             text-decoration: none;
             font-weight: 600;
+            transition: color 0.2s ease;
         }
 
         .footer a:hover {
+            color: #6d28d9;
             text-decoration: underline;
         }
 
         .helper-text {
-            margin-top: 10px;
+            margin-top: 8px;
             font-size: 12px;
-            color: #94a3b8;
-            line-height: 1.6;
+            color: #9ca3af;
+            line-height: 1.5;
         }
 
-        @media (max-width: 920px) {
-            .shell {
-                grid-template-columns: 1fr;
-            }
-            .hero {
-                border-right: 0;
-                border-bottom: 1px solid rgba(148, 163, 184, 0.12);
-            }
-            .hero h1 {
-                font-size: 34px;
-            }
-        }
-
-        @media (max-width: 640px) {
+        @media (max-width: 480px) {
             body {
                 padding: 12px;
             }
-            .hero, .login {
-                padding: 28px 22px;
+            .login-card {
+                padding: 32px 24px;
+            }
+            .login-head h1 {
+                font-size: 24px;
             }
         }
     </style>
 </head>
 <body>
-    <div class="shell">
-        <section class="hero">
-            <div>
-                <div class="brand">jettyCat live studio</div>
-                <h1>直播、聊天室、音视频协作的一体化入口</h1>
-                <p>面向实时互动场景的工作台。登录后进入你的直播中枢，管理直播、消息流和连麦协作。</p>
+    <canvas id="canvas"></canvas>
+    
+    <div class="login-container">
+        <div class="login-card">
+            <div class="logo-area">
+                <div class="logo">jettyCat Live Studio</div>
             </div>
-            <div class="signals">
-                <div class="signal"><span class="signal-dot"></span><span>直播推流与房间状态看板</span></div>
-                <div class="signal"><span class="signal-dot"></span><span>实时聊天室与消息流</span></div>
-                <div class="signal"><span class="signal-dot"></span><span>音视频通话与协作房间</span></div>
-            </div>
-        </section>
 
-        <section class="login">
             <div class="login-head">
-                <h2>欢迎回来</h2>
+                <h1>欢迎回来</h1>
                 <p>输入账号进入你的直播控制中心</p>
             </div>
 
@@ -403,8 +404,167 @@
             <div class="footer">
                 还没有账户？<a href="/pages/register.html">立即注册</a>
             </div>
-        </section>
+        </div>
     </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const gl = canvas.getContext('webgl');
+        
+        if (!gl) {
+            canvas.style.display = 'none';
+        } else {
+            function resizeCanvas() {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+                gl.viewport(0, 0, canvas.width, canvas.height);
+            }
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+
+            const vertexShaderSource = `
+                attribute vec4 aVertexPosition;
+                void main(void) {
+                    gl_Position = aVertexPosition;
+                }
+            `;
+
+            const fragmentShaderSource = `
+                precision highp float;
+                
+                uniform vec2 uResolution;
+                uniform float uTime;
+                
+                vec3 paletteColor(float t) {
+                    vec3 purple = vec3(0.49, 0.23, 0.93);
+                    vec3 blue = vec3(0.23, 0.51, 0.96);
+                    vec3 lightBlue = vec3(0.85, 0.92, 0.98);
+                    
+                    if (t < 0.33) {
+                        return mix(purple, blue, t * 3.0);
+                    } else if (t < 0.66) {
+                        return mix(blue, lightBlue, (t - 0.33) * 3.0);
+                    } else {
+                        return mix(lightBlue, blue, (t - 0.66) * 3.0);
+                    }
+                }
+                
+                float noise(vec2 p) {
+                    vec2 i = floor(p);
+                    vec2 f = fract(p);
+                    float n = fract(sin(dot(i, vec2(12.9898, 78.233))) * 43758.5453);
+                    return n;
+                }
+                
+                float smoothNoise(vec2 p) {
+                    vec2 i = floor(p);
+                    vec2 f = fract(p);
+                    
+                    float a = noise(i);
+                    float b = noise(i + vec2(1.0, 0.0));
+                    float c = noise(i + vec2(0.0, 1.0));
+                    float d = noise(i + vec2(1.0, 1.0));
+                    
+                    vec2 u = f * f * (3.0 - 2.0 * f);
+                    
+                    return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+                }
+                
+                float fbm(vec2 p) {
+                    float value = 0.0;
+                    float amplitude = 0.5;
+                    float frequency = 1.0;
+                    
+                    for (int i = 0; i < 6; i++) {
+                        value += amplitude * smoothNoise(p * frequency);
+                        frequency *= 2.0;
+                        amplitude *= 0.5;
+                    }
+                    
+                    return value;
+                }
+                
+                void main(void) {
+                    vec2 uv = gl_FragCoord.xy / uResolution.xy;
+                    
+                    float time = uTime * 0.2;
+                    
+                    vec2 p = uv * 2.5;
+                    p.x += time * 0.2;
+                    p.y += time * 0.15;
+                    
+                    float noiseValue = fbm(p);
+                    
+                    vec3 color = paletteColor(noiseValue);
+                    
+                    gl_FragColor = vec4(color, 1.0);
+                }
+            `;
+
+            function createShader(gl, type, source) {
+                const shader = gl.createShader(type);
+                gl.shaderSource(shader, source);
+                gl.compileShader(shader);
+                if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                    console.error('Shader compile error:', gl.getShaderInfoLog(shader));
+                    return null;
+                }
+                return shader;
+            }
+
+            function createProgram(gl, vertexShader, fragmentShader) {
+                const program = gl.createProgram();
+                gl.attachShader(program, vertexShader);
+                gl.attachShader(program, fragmentShader);
+                gl.linkProgram(program);
+                if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                    console.error('Program link error:', gl.getProgramInfoLog(program));
+                    return null;
+                }
+                return program;
+            }
+
+            const vertexShader = createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
+            const fragmentShader = createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
+            const program = createProgram(gl, vertexShader, fragmentShader);
+
+            const vertices = new Float32Array([
+                -1.0, -1.0,
+                 1.0, -1.0,
+                -1.0,  1.0,
+                 1.0,  1.0
+            ]);
+
+            const vertexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+            const positionLocation = gl.getAttribLocation(program, 'aVertexPosition');
+            gl.enableVertexAttribArray(positionLocation);
+            gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+            const resolutionLocation = gl.getUniformLocation(program, 'uResolution');
+            const timeLocation = gl.getUniformLocation(program, 'uTime');
+
+            gl.enable(gl.BLEND);
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+            function animate(timestamp) {
+                gl.useProgram(program);
+                gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
+                gl.uniform1f(timeLocation, timestamp / 1000);
+                
+                gl.clearColor(0.98, 0.98, 0.99, 1.0);
+                gl.clear(gl.COLOR_BUFFER_BIT);
+                
+                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+                
+                requestAnimationFrame(animate);
+            }
+
+            requestAnimationFrame(animate);
+        }
+    </script>
 
     <script>
         const API_URL = '/api/login/jwt';
@@ -462,7 +622,6 @@
             }
         }
 
-        // toggle password visibility helpers
         function toggleVisibility(inputEl) {
             if (!inputEl) return;
             inputEl.type = inputEl.type === 'password' ? 'text' : 'password';
@@ -642,10 +801,10 @@
         regCodeInput.addEventListener('input', hideAlert);
         loginModeBtn.addEventListener('click', () => setMode('login'));
         registerModeBtn.addEventListener('click', () => setMode('register'));
-        // eye toggles
+        
         if (regPasswordToggle) regPasswordToggle.addEventListener('click', () => toggleVisibility(regPasswordInput));
         if (regPasswordConfirmToggle) regPasswordConfirmToggle.addEventListener('click', () => toggleVisibility(regPasswordConfirmInput));
-        // also add a small toggle for the login password (inline create)
+        
         (function attachLoginEye(){
             const wrap = document.createElement('div');
             wrap.className = 'pw-wrap';

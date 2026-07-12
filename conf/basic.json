@@ -3,6 +3,36 @@
     "logs" : [
         {
             "name" : "jettyCat",
+            "level" : "DEBUG",
+            "appenders" : [
+                {
+                    "type" : "StdoutLogAppender",
+                    "level" : "DEBUG"
+                },
+                {
+                    "type" : "FileLogAppender",
+                    "file" : "./log/system_log.txt",
+                    "level" : "INFO"
+                }
+            ]
+        },
+        {
+            "name" : "system",
+            "level" : "DEBUG",
+            "appenders" : [
+                {
+                    "type" : "StdoutLogAppender",
+                    "level" : "DEBUG"
+                },
+                {
+                    "type" : "FileLogAppender",
+                    "file" : "/home/koddnty/user/projects/sylar/m_sylar/m_sylar/log/system_log.txt",
+                    "level" : "INFO"
+                }
+            ]
+        },
+        {
+            "name" : "root",
             "level" : "INFO",
             "appenders" : [
                 {
@@ -11,7 +41,7 @@
                 },
                 {
                     "type" : "FileLogAppender",
-                    "file" : "./log/system_log.txt",
+                    "file" : "/home/koddnty/user/projects/sylar/m_sylar/m_sylar/log/root_log.txt",
                     "level" : "INFO"
                 }
             ]

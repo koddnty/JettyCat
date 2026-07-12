@@ -3,13 +3,15 @@
 #include <DBPool/redis.h>
 #include <DBPool/mysql.h>
 #include <DBPool/factory.h>
-#include <http/httpServer.h>
+#include <server/http/httpServer.hpp>
 #include <coroutine/corobase.h>
 #include <filesystem>
 #include <unistd.h>
+#include <protocol/http/http.hpp>
 
 #define JettyCat_CONFIG_ID 1
 
+using namespace m_sylar;
 
 
 

@@ -1,7 +1,7 @@
 #pragma once
 #include <string.h>
 #include <iostream>
-#include <http/http.h>
+#include <server/http/httpServer.hpp>
 #include <nlohmann/json.hpp>
 #include <basic/log.h>
 #include "publicHeader.hpp"
@@ -43,9 +43,12 @@ public:
 
     static std::string generateJWT(const std::string& username, RolePermissions::Role role);
     static bool verifyJWT(m_sylar::http::HttpSession::ptr session);
+    static bool verifyJWT(const std::string& jwt);
 
     static JWT::Header parserHeader(const std::string& jwt);
     static JWT::Payload parserPayload(const std::string& jwt);
+
+    
 };
 
 
