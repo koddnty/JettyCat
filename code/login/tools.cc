@@ -27,12 +27,12 @@ std::string RolePermissions::RoleToString(RolePermissions::Role role) {
 
 RolePermissions::Role RolePermissions::RoleFromString(std::string roleStr) {
     roleStr += ",";
-    int begin_pos = 0;
-    int end_pos = roleStr.find(",");
+    size_t begin_pos = 0;
+    size_t end_pos = roleStr.find(',');
     Role result = Role::UNKNOWN;
     while(end_pos != std::string::npos) {
         std::string role_part = roleStr.substr(begin_pos, end_pos - begin_pos);
-        std::transform(role_part.begin(), role_part.end(), role_part.begin(), ::toupper); // 去除空格
+        std::ranges::transform(role_part, role_part.begin(), ::toupper); // 去除空格
         if(role_part == "USER") {
             result = static_cast<Role>(result | Role::USER);
         } else if(role_part == "ADMIN") {
@@ -43,7 +43,7 @@ RolePermissions::Role RolePermissions::RoleFromString(std::string roleStr) {
             return Role::UNKNOWN;
         }
         begin_pos = end_pos + 1;
-        end_pos = roleStr.find(",", begin_pos);
+        end_pos = roleStr.find(',', begin_pos);
     }
     return result;
 }
@@ -51,30 +51,30 @@ RolePermissions::Role RolePermissions::RoleFromString(std::string roleStr) {
 
 // 生成JWT
 std::string JWT::generateJWT(const std::string& username, RolePermissions::Role role) {
-    nlohmann::json header = {
+    const nlohmann::json header = {
         {"typ", "JWT"},
         {"alg", "HS256"}
     };
     std::string role_str = RolePermissions::RoleToString(role);
-    nlohmann::json payload = {
+    const nlohmann::json payload = {
         {"username", username},
         {"role", role_str},
         {"exp", std::time(nullptr) + 3600} // 设置过期时间为1小时
     };
 
-    std::string header_encoded = Encode::base64JWTEncode(header.dump());
-    std::string payload_encoded = Encode::base64JWTEncode(payload.dump());
-    std::string signature_input = header_encoded + "." + payload_encoded;
+    const std::string header_encoded = Encode::base64JWTEncode(header.dump());
+    const std::string payload_encoded = Encode::base64JWTEncode(payload.dump());
+    const std::string signature_input = header_encoded + "." + payload_encoded;
 
-    std::string key = jwtKey->getValue();
+    const std::string key = jwtKey->getValue();
 
     unsigned char signature[64];  // EVP_MAX_MD_SIZE
     unsigned int signature_len = sizeof(signature);
 
-    unsigned char* signatureptr = HMAC(EVP_sha256(), key.c_str(), key.size(), 
+    const unsigned char* signature_ptr = HMAC(EVP_sha256(), key.c_str(), key.size(),
                                 reinterpret_cast<const unsigned char*>(signature_input.data()), 
                                 signature_input.size(), signature, &signature_len);
-    if(signatureptr == nullptr) {
+    if(signature_ptr == nullptr) {
         M_SYLAR_LOG_ERROR(j_logger) << "HMAC calculation failed";
         return "";
     }
