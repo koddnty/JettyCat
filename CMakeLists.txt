@@ -22,6 +22,8 @@ file(GLOB_RECURSE ALL_SOURCES "code/*.cc")
 
 add_library(jtcat STATIC 
     ${ALL_SOURCES}
+        code/chat/MessageList.hpp
+        code/chat/MessageList.cc
 )
 
 set ( LIB_LIB

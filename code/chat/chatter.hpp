@@ -1,7 +1,7 @@
 #pragma once
 #include "publicHeader.hpp"
 #include <nlohmann/json.hpp>
-#include "websocket.hpp"
+#include "connection.hpp"
 
 class Chatter{
 public:

@@ -1,6 +1,5 @@
-#include <cstdio>
 #include <memory>
-#include <signal.h>
+#include <csignal>
 #include <iostream>
 #include <basic/log.h>
 #include <basic/address.h>
@@ -10,20 +9,20 @@
 #include "publicHeader.hpp"
 #include "login/register.hpp"
 #include <sylar/server/websocket/wsserver.hpp>
-#include "chat/websocket.hpp"
+#include "chat/connection.hpp"
 
 static m_sylar::Logger::ptr g_logger = M_SYLAR_LOG_NAME("jettyCat");
 static sem_t g_sem;
 
 
-void signalHander(int signum) {
+void signalHandler(int signum) {
     sem_post(&g_sem);
 }
 
 void projectInit() {
     //  程序初始化
     sem_init(&g_sem, 0, 0);
-    signal(SIGINT, signalHander);
+    signal(SIGINT, signalHandler);
 
     // 配置系统初始化
     m_sylar::ConfigManager::LoadJson(projectRoot().string() + "/conf/basic.json", 0);
@@ -87,8 +86,7 @@ void projectCleanUp(m_sylar::IOManager& iom, m_sylar::http::HttpServer::ptr serv
     return ;
 }
 
-void urlReg(m_sylar::http::HttpServer::ptr http_server, m_sylar::websocket::WsServer::ptr ws_server)
-{   
+void urlReg(m_sylar::http::HttpServer::ptr http_server, m_sylar::websocket::WsServer::ptr ws_server){
     Register::registeUrl(http_server);
     ChatWebSocketServer::registeUrl(ws_server);
 }
