@@ -2,6 +2,8 @@
 #include <cstdlib>
 #include <ctime>
 
+#include "chat/MessageList.hpp"
+
 static m_sylar::Logger::ptr j_logger = M_SYLAR_LOG_NAME("jettyCat");
 using namespace m_sylar;
 
@@ -40,13 +42,20 @@ m_sylar::Task<void> Register::coGetRegCode(m_sylar::http::HttpSession::ptr sessi
     std::string jwt = req->getCookie("jwttoken");
     JWT::Header header;
     header = JWT::parserHeader(jwt);
-    if(jwt.empty() || !JWT::verifyJWT(session)) {
+    if(jwt.empty() || JWT::State::SUCCESS != JWT::verifyJWT(session)) {
         nlohmann::json j;
         j["status"] = "failed";
-        j["error"] = "FORBIDDEN: Invalid or missing JWT token";
+        if (JWT::verifyJWT(session) == JWT::State::EXPIRED) {
+            j["error"] = "FORBIDDEN: token expired";
+            resp->setStatus(http::StatusCode::unauthorized);
+        }
+        else {
+            j["error"] = "FORBIDDEN: Invalid or missing JWT token";
+            resp->setStatus(http::StatusCode::forbidden);
+        }
+
         resp->appendHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
-        resp->setStatus(http::StatusCode::forbidden);
         co_await session->co_sendResp();
         co_return;
     }
@@ -72,7 +81,7 @@ m_sylar::Task<void> Register::coGetRegCode(m_sylar::http::HttpSession::ptr sessi
     // M_SYLAR_LOG_INFO(j_logger) << "generate one registe code" << std::endl;
 
     // 生成验证码并存入redis
-    int num = rand() % 90000000 + 10000000;
+    int num = random() % 90000000 + 10000000;
     std::string cmd = "set reg_code_" + std::to_string(num) + " " + valid_times + " EX " + time_limit;
     RedisResp::ptr reply = co_await m_sylar::DB::Redis::getInstance()->executeQuery(cmd);
     // 响应

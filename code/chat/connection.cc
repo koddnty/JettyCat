@@ -40,7 +40,7 @@ m_sylar::Task<void> ChatHandler::co_onOpen(std::shared_ptr<WsSession> session) {
     std::string jwttoken = request->getCookie(g_jwtTokenKey->getValue());
 
     M_SYLAR_LOG_DEBUG(g_logger) << "WebSocket connection opened, sessionId=" << sessionId << ", jwtToken=" << jwttoken;
-    if(!JWT::verifyJWT(jwttoken)) {     // 无法验证jwt，关闭连接
+    if(JWT::State::SUCCESS != JWT::verifyJWT(jwttoken)) {     // 无法验证jwt，关闭连接
         websocket::Frame frame;
         nlohmann::json j;
         j["status"] = "success";

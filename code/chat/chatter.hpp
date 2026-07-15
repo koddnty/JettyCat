@@ -5,8 +5,8 @@
 
 class Chatter{
 public:
-    Chatter() {}
-    ~Chatter() {}
+    Chatter() = default;
+    ~Chatter() = default;
 
     // interface
 public:

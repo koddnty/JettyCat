@@ -29,12 +29,8 @@ public:
     static m_sylar::Task<void> coGetRegCode(m_sylar::http::HttpSession::ptr session);
     
     static m_sylar::Task<void> registe(m_sylar::http::HttpSession::ptr session);
+
     // 登陆
-    // 生成JWT
-    static std::string generateJWT(const std::string& username, RolePermissions::Role role);
-
-    static bool verifyJWT(m_sylar::http::HttpSession::ptr session);
-
     // 登陆接口
     static m_sylar::Task<void> coLogin(m_sylar::http::  HttpSession::ptr session);
 

@@ -8,8 +8,8 @@
 
 class RolePermissions {
 public:
-    RolePermissions() {}
-    ~RolePermissions() {}
+    RolePermissions() = default;
+    ~RolePermissions() = default;
 
     enum Role : unsigned int{
         UNKNOWN = 0,
@@ -19,43 +19,46 @@ public:
 
     static std::string RoleToString(Role role);
     static Role RoleFromString(std::string roleStr);
-
-
 };
 
 
 class JWT {
 public:
-    JWT() {}
-    ~JWT() {}
+    JWT() = default;
+    ~JWT() = default;
 
     class Header {
     public:
-        std::string typ = "";
-        std::string alg = "";
+        std::string typ;
+        std::string alg;
     };
 
     class Payload {
     public:
-        std::string username = "";
+        std::string username;
+        uint64_t exp;
         RolePermissions::Role role = RolePermissions::Role::UNKNOWN;
     };
 
+    enum class State {
+        FAILED = 0,
+        SUCCESS = 1,
+        EXPIRED = 2
+    };
+
     static std::string generateJWT(const std::string& username, RolePermissions::Role role);
-    static bool verifyJWT(m_sylar::http::HttpSession::ptr session);
-    static bool verifyJWT(const std::string& jwt);
+    static State verifyJWT(const http::HttpSession::ptr& session);
+    static State verifyJWT(const std::string& jwt);
 
     static JWT::Header parserHeader(const std::string& jwt);
     static JWT::Payload parserPayload(const std::string& jwt);
-
-    
 };
 
 
 class Encode {
 public:
-    Encode() {}
-    ~Encode() {}
+    Encode() = default;
+    ~Encode() = default;
 
     // 工具函数
     static std::string base64JWTEncode(const std::string &input);
@@ -67,8 +70,8 @@ public:
 
 class Hash {
 public:
-    Hash() {}
-    ~Hash() {}
+    Hash() = default;
+    ~Hash() = default;
 
 
 
@@ -83,11 +86,11 @@ public:
 
 class TemplateHeader {
 public:
-    TemplateHeader() {}
-    ~TemplateHeader() {}
+    TemplateHeader() = default;
+    ~TemplateHeader() = default;
 
     // OPTION请求返回false. 其他请求返回true.
-    static bool CORSALL(m_sylar::http::HttpSession::ptr session);  
+    static bool CORSALL(m_sylar::http::HttpSession::ptr session);
 };
 
 
