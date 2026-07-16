@@ -5,8 +5,7 @@ set(CMAKE_CXX_FLAGS "$ENV{CXXFLAGS} -rdynamic -g -fPIC -ggdb -std=c++20 -Wall -W
 
 link_directories(/usr/local/lib)
 
-
-# file(GLOB LOGIN_SOURCES "code/login/*.cc")
+option(BUILD_FUNC_TESTS "Build test executables" OFF)
 
 
 
@@ -17,13 +16,12 @@ find_package(nlohmann_json REQUIRED)
 
 find_library(MARIADB_LIB mariadb /usr/local/lib/mariadb)
 find_library(HIREDIS_LIB hiredis /usr/local/lib)
+find_library(SYLAR_LIB sylar /usr/local/lib)
 
 file(GLOB_RECURSE ALL_SOURCES "code/*.cc")
 
 add_library(jtcat STATIC 
     ${ALL_SOURCES}
-        code/chat/MessageList.hpp
-        code/chat/MessageList.cc
 )
 
 set ( LIB_LIB
@@ -32,6 +30,7 @@ set ( LIB_LIB
     yaml-cpp::yaml-cpp
     OpenSSL::SSL
     OpenSSL::Crypto
+    ${SYLAR_LIB}
     ${MARIADB_LIB}
     ${HIREDIS_LIB}
 )
@@ -48,3 +47,8 @@ target_link_libraries(jettyCat jtcat sylar)
 
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
 set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
+
+
+
+# 子测试
+add_subdirectory(${PROJECT_SOURCE_DIR}/test/function)

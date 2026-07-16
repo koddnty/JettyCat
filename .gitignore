@@ -53,3 +53,5 @@ nginx.conf
 *.sql
 .idea
 /.clang-format
+usages
+test
