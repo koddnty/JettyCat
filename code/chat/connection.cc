@@ -198,8 +198,6 @@ m_sylar::Task<void> ChatHandler::co_onMessage(std::shared_ptr<WsSession> session
     }
 
     //      消息持久化
-
-
     M_SYLAR_LOG_DEBUG(g_logger) << "co_onMessage finished";
     co_return;
 }

@@ -22,8 +22,12 @@ using userId = int;         // 用户id
 class Message {
 public:
     enum class Type {
-        TXT,
-        PICTURE
+        UNKNOWN,
+        TEXT,
+        IMAGE,
+        VOICE,
+        VIDEO,
+        FILE
     };
 
     Message() = default;
@@ -33,21 +37,39 @@ public:
 
     inline Message& setContent(const std::string& content) {m_content = content; return *this;}
     inline Message& setType(const Type type) {m_type = type; return *this;}
+    inline Message& setType(const std::string& type) {m_type = StringToType(type); return *this;}
     inline Message& setFrom(const userId& from) {m_from = from; return *this;}
     inline Message& setDate(const uint64_t date) {m_date = date; return *this;}
 
-    inline const std::string& getContent() const {return m_content;}
-    inline const userId& getFrom() const  {return m_from;}
-    inline uint64_t getDate() const  {return m_date;}
-    inline Type getType() const {return m_type;}
+    [[nodiscard]] inline const std::string& getContent() const {return m_content;}
+    [[nodiscard]] inline const userId& getFrom() const  {return m_from;}
+    [[nodiscard]] inline uint64_t getDate() const  {return m_date;}
+    [[nodiscard]] inline Type getType() const {return m_type;}
+
+    static Type StringToType(const std::string& content);
+    static std::string TypeToString(Type type);
 
     [[nodiscard]] std::string dump() const;
 
 private:
     uint64_t m_date{0};             // 时间戳
     userId m_from;                  // 来源
-    Type m_type {Type::TXT};        // 类型
+    Type m_type {Type::TEXT};        // 类型
     std::string m_content;          // 根据Type决定消息类型
+    inline static std::map<std::string, Type> m_STT{
+        {"TEXT", Type::TEXT},
+        {"IMAGE", Type::IMAGE},
+        {"VOICE", Type::VOICE},
+        {"VIDEO", Type::VIDEO},
+        {"FILE", Type::FILE}
+    };
+    inline static std::map<Type, std::string> m_TTS{
+        {Type::TEXT, "TEXT"},
+        {Type::IMAGE, "IMAGE"},
+        {Type::VOICE, "VOICE"},
+        {Type::VIDEO, "VIDEO"},
+        {Type::FILE, "FILE"}
+    };
 };
 
 
@@ -80,20 +102,22 @@ m_sylar::Task<State>sendToUser(const userId& user_id, const MessageList& message
 m_sylar::Task<State>sendToGroup(const groupId& group_id, const MessageList& message_list);               // 发送到群聊发件箱,等待其他用户拉取
 
 /**
- * @brief 从目标群收件箱接受群消息
+ * @brief 从目标群收件箱接受群消息, 返回10条消息,(返回的消息条数)通过配置文件配置
  * @param group_id 群组id
+ * @param offset 偏移量(翻页)
  * @param message_list 接受到的消息列表
  * @return 接受状态
  */
-m_sylar::Task<State>fetchFromGroup(const groupId& group_id, MessageList& message_list);                  // 从群聊接受消息
+m_sylar::Task<State>fetchFromGroup(const groupId& group_id, size_t offset, MessageList& message_list);                  // 从群聊接受消息
 
 /**
- * @brief 从当前用户收件箱拉取消息
- * @param user_id 当前用户id
+ * @brief 从当前用户收件箱拉取消息,返回10条消息,(返回的消息条数)通过配置文件配置
+ * @param sender_id 当前用户id
+ * @param offset 偏移量(翻页)
  * @param message_list 接受到的消息列表
  * @return
  */
-m_sylar::Task<State>fetchFromInbox(const userId& user_id, MessageList& message_list);            // 从收件箱接受消息
+m_sylar::Task<State>fetchFromInbox(const userId& sender_id, size_t offset, MessageList& message_list);            // 从收件箱接受消息
 
 };
 

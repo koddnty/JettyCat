@@ -1,7 +1,7 @@
 #pragma once
 #include <basic/log.h>
 #include <DBPool/redis.h>
-#include <DBPool/mysql.h>
+#include <DBPool/mysql.hpp>
 #include <DBPool/factory.h>
 #include <server/http/httpServer.hpp>
 #include <coroutine/corobase.h>

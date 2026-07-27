@@ -3,7 +3,7 @@
     "logs" : [
         {
             "name" : "jettyCat",
-            "level" : "DEBUG",
+            "level" : "INFO",
             "appenders" : [
                 {
                     "type" : "StdoutLogAppender",
@@ -18,7 +18,7 @@
         },
         {
             "name" : "system",
-            "level" : "DEBUG",
+            "level" : "INFO",
             "appenders" : [
                 {
                     "type" : "StdoutLogAppender",

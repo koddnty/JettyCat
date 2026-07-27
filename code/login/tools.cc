@@ -120,7 +120,7 @@ JWT::State JWT::verifyJWT(const std::string& jwt) {
         M_SYLAR_LOG_ERROR(j_logger) << "HMAC calculation failed";
         return State::FAILED;
     }
-     std::string cal_signature= Encode::base64JWTEncode(std::string(reinterpret_cast<char*>(signature), signature_len));
+    const std::string cal_signature= Encode::base64JWTEncode(std::string(reinterpret_cast<char*>(signature), signature_len));
 
     if(cal_signature != signature_encoded) {
         return State::FAILED;

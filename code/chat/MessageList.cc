@@ -9,57 +9,182 @@ namespace JettyCat::chat {
 static m_sylar::Logger::ptr g_logger = M_SYLAR_LOG_NAME("jettyCat");
 
 
+Message::Type Message::StringToType(const std::string& content) {
+    std::string s_type = content;
+    std::ranges::transform(content, s_type.begin(), ::toupper);
+    const auto type = m_STT.find(s_type);
+    if (type == m_STT.end()) {
+        M_SYLAR_LOG_ERROR(g_logger) << "unknown message type: " << s_type;
+        return Type::UNKNOWN;
+    }
+    return type->second;
+}
+
+
+std::string Message::TypeToString(const Type type) {
+    const auto content = m_TTS.find(type);
+    if (content == m_TTS.end()) {
+        M_SYLAR_LOG_ERROR(g_logger) << "unknown message type : " << (int) type;
+        return "BAD_TYPE";
+    }
+    return content->second;
+}
+
 std::string Message::dump() const {
     nlohmann::json j{};
     j["date"] = m_date;
     j["from"] = m_from;
-    j["type"] = m_type;
+    j["type"] = TypeToString(m_type);
     j["content"] = m_content;
     return j.dump();
 }
 
+
 m_sylar::Task<State> sendToUser(const userId& user_id, const MessageList& message_list) {
-    std::stringstream cmd;
-    cmd << "insert into user_message (sender_id, receiver_id, content, extra) values (";
-    for (auto msg_it = message_list.begin(); msg_it != message_list.end(); ++msg_it) {
-        cmd << std::to_string(msg_it->getFrom()) << ", "
-            << std::to_string(user_id) << ", '"
-            << msg_it->getContent() << "', '"
-            << msg_it->dump()<< "'"
-            << (std::next(msg_it) == message_list.end() ? "\n);" : ",\n");
+    const std::string sql = "insert into user_message (sender_id, receiver_id, content, extra) values (?, ?, ?, ?)";
+    const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
+    MySQLStmt stmt {conn_wrap};
+    for (auto& msg_it : message_list) {
+        IOState state = IOState::TIMEOUT;
+        int count = 3;
+        while (state == IOState::TIMEOUT && count--) {
+            state = co_await stmt.co_execute(sql, msg_it.getFrom(), user_id, msg_it.getContent(), msg_it.dump());
+        }
+
+        // 状态检查
+        switch (state) {
+            case IOState::SUCCESS:
+                continue;
+            case IOState::TIMEOUT:
+                M_SYLAR_LOG_ERROR(g_logger) << "execute sql time out: " << sql;
+                co_return State::TIMEOUT;
+            default:
+                M_SYLAR_LOG_ERROR(g_logger) << "failed to execute sql: " << sql;
+                co_return State::FAILED;
+        }
     }
 
-    // 发送并处理
-    M_SYLAR_LOG_DEBUG(g_logger) << cmd.str();
-    const MySQLResp::ptr state =  co_await m_sylar::DB::Mysql::getInstance()->executeQuery(cmd.str());
-    if (state) {
-        if (state->getState() == IOState::State::SUCCESS) {
-            co_return State::SUCCESS;
-        }
-        else if (state->getState() == IOState::State::TIMEOUT){
-            co_return State::TIMEOUT;
-        }
-        else {
-            M_SYLAR_LOG_ERROR(g_logger) << "sql execute state: " << state->getState() << ", failed to execute sql: " << cmd.str();
-            co_return State::FAILED;
-        }
-    }
-    M_SYLAR_ASSERT2(false, "should never reach here");
-    co_return State::FAILED;
+    co_return State::SUCCESS;
 }
 
 
 m_sylar::Task<State> sendToGroup(const groupId& group_id, const MessageList& message_list) {
+    const std::string sql = "insert into group_message (user_id, group_id, content, extra) values (?, ?, ?, ?)";
+    const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
+    MySQLStmt stmt {conn_wrap};
+    for (auto& msg_it : message_list) {
+        IOState state = IOState::TIMEOUT;
+        int count = 3;
+        while (state == IOState::TIMEOUT && count--) {
+            state = co_await stmt.co_execute(sql, msg_it.getFrom(), group_id, msg_it.getContent(), msg_it.dump());
+        }
 
+        // 状态检查
+        switch (state) {
+        case IOState::SUCCESS:
+            continue;
+        case IOState::TIMEOUT:
+            M_SYLAR_LOG_ERROR(g_logger) << "execute sql time out: " << sql;
+            co_return State::TIMEOUT;
+        default:
+            M_SYLAR_LOG_ERROR(g_logger) << "failed to execute sql: " << sql;
+            co_return State::FAILED;
+        }
+    }
+
+    co_return State::SUCCESS;
 }
 
 
-m_sylar::Task<State> fetchFromGroup(const groupId& group_id, MessageList& message_list) {
+m_sylar::Task<State> fetchFromGroup(const groupId& group_id, size_t offset, MessageList& message_list) {
+    const std::string sql = "select user_id, msg_type, content, UNIX_TIMESTAMP(send_time) from group_message where group_message.group_id = ? order by group_message.send_time desc limit 10 offset ?";
+    const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
+    MySQLStmt<int, STMT_Text<36>, STMT_Text<2048>, uint64_t> stmt {conn_wrap};
 
+    // 执行语句
+    IOState state = IOState::TIMEOUT;
+    int count = 3;
+    while (state == IOState::TIMEOUT && count--) {
+        state = co_await stmt.co_execute(sql, group_id, offset);
+    }
+    // 状态检查
+    switch (state) {
+    case IOState::SUCCESS:
+        break;
+    case IOState::TIMEOUT:
+        M_SYLAR_LOG_ERROR(g_logger) << "execute sql time out: " << sql;
+        co_return State::TIMEOUT;
+    default:
+        M_SYLAR_LOG_ERROR(g_logger) << "failed to execute sql: " << sql;
+        co_return State::FAILED;
+    }
+
+    // 结果获取
+    if(IOState::SUCCESS != co_await stmt.co_storeAll()) {
+        M_SYLAR_LOG_ERROR(g_logger) << "failed to store all result: " << sql;
+        co_return State::FAILED;
+    }
+    if (IOState::SUCCESS != co_await stmt.co_fetchAll()) {
+        M_SYLAR_LOG_ERROR(g_logger) << "failed to fetch all results: " << sql;
+        co_return State::FAILED;
+    }
+
+    // 结果写入
+    for (auto result = stmt.getResult().getAll(); auto& it : result) {
+        Message message;
+        message.setDate(std::get<3>(it))
+            .setContent(std::get<2>(it).toString())
+            .setType(std::get<1>(it).toString())
+            .setFrom(std::get<0>(it));
+        message_list.push_back(message);
+    }
+    co_return State::SUCCESS;
 }
 
 
-m_sylar::Task<State> fetchFromInbox(const userId& user_id, MessageList& message_list) {
+m_sylar::Task<State> fetchFromInbox(const userId& sender_id, size_t offset, MessageList& message_list) {
+    const std::string sql = "select msg_type, content, UNIX_TIMESTAMP(send_time) from user_message where user_message.sender_id = ? order by user_message.send_time desc limit 10 offset ?";
+    const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
+    MySQLStmt<STMT_Text<36>, STMT_Text<2048>, uint64_t> stmt {conn_wrap};
 
+    // 执行语句
+    IOState state = IOState::TIMEOUT;
+    int count = 3;
+    while (state == IOState::TIMEOUT && count--) {
+        state = co_await stmt.co_execute(sql, sender_id, offset);
+    }
+    // 状态检查
+    switch (state) {
+    case IOState::SUCCESS:
+        break;
+    case IOState::TIMEOUT:
+        M_SYLAR_LOG_ERROR(g_logger) << "execute sql time out: " << sql;
+        co_return State::TIMEOUT;
+    default:
+        M_SYLAR_LOG_ERROR(g_logger) << "failed to execute sql: " << sql;
+        co_return State::FAILED;
+    }
+
+    // 结果获取
+    if(IOState::SUCCESS != co_await stmt.co_storeAll()) {
+        M_SYLAR_LOG_ERROR(g_logger) << "failed to store all result: " << sql;
+        co_return State::FAILED;
+    }
+    if (IOState::SUCCESS != co_await stmt.co_fetchAll()) {
+        M_SYLAR_LOG_ERROR(g_logger) << "failed to fetch all results: " << sql;
+        co_return State::FAILED;
+    }
+
+    // 结果写入
+    for (auto result = stmt.getResult().getAll(); auto& it : result) {
+        auto cs = std::get<1>(it).toString();
+        Message message;
+        message.setDate(std::get<2>(it))
+            .setContent(std::get<1>(it).toString())
+            .setType(std::get<0>(it).toString())
+            .setFrom(sender_id);
+        message_list.push_back(message);
+    }
+    co_return State::SUCCESS;
 }
 };
