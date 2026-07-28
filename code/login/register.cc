@@ -221,6 +221,7 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
     resp->appendHeader("Content-Type", "application/json");
     resp->appendHeader("Set-Cookie", cookie);
     resp->setBody(j.dump());
+    resp->setStatus(http::StatusCode::ok);
     co_await session->co_sendResp();
     co_return;
 } 

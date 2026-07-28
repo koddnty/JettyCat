@@ -1,6 +1,7 @@
 //
 // Created by koddnty on 2026/7/14.
 //
+#pragma once
 
 #ifndef JETTYCAT_MESSAGE_HPP
 #define JETTYCAT_MESSAGE_HPP
@@ -53,7 +54,7 @@ public:
 
 private:
     uint64_t m_date{0};             // 时间戳
-    userId m_from;                  // 来源
+    userId m_from {-1};                  // 来源
     Type m_type {Type::TEXT};        // 类型
     std::string m_content;          // 根据Type决定消息类型
     inline static std::map<std::string, Type> m_STT{
