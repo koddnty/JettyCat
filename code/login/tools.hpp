@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 #include <basic/log.h>
 #include "publicHeader.hpp"
+#include "chat/MessageList.hpp"
 
 class RolePermissions {
 public:
@@ -35,7 +36,8 @@ public:
 
     class Payload {
     public:
-        std::string username;
+        std::string user_name;
+        JettyCat::chat::userId user_id {-1};
         uint64_t exp;
         RolePermissions::Role role = RolePermissions::Role::UNKNOWN;
     };
@@ -46,7 +48,7 @@ public:
         EXPIRED = 2
     };
 
-    static std::string generateJWT(const std::string& username, RolePermissions::Role role);
+    static std::string generateJWT(const std::string& username, RolePermissions::Role role, JettyCat::chat::userId user_id);
     static State verifyJWT(const http::HttpSession::ptr& session);
     static State verifyJWT(const std::string& jwt);
 

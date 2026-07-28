@@ -52,7 +52,7 @@ RolePermissions::Role RolePermissions::RoleFromString(std::string roleStr) {
 
 
 // 生成JWT
-std::string JWT::generateJWT(const std::string& username, const RolePermissions::Role role) {
+std::string JWT::generateJWT(const std::string& username, const RolePermissions::Role role, JettyCat::chat::userId user_id) {
     const nlohmann::json header = {
         {"typ", "JWT"},
         {"alg", "HS256"}
@@ -60,6 +60,7 @@ std::string JWT::generateJWT(const std::string& username, const RolePermissions:
     std::string role_str = RolePermissions::RoleToString(role);
     const nlohmann::json payload = {
         {"username", username},
+        {"userid", user_id},
         {"role", role_str},
         {"exp", std::time(nullptr)} // 设置过期时间为1小时
     };
@@ -185,7 +186,8 @@ JWT::Payload JWT::parserPayload(const std::string& jwt) {
     // 配置解析
     JWT::Payload payload;
     try {
-        payload.username = payload_json.value("username", "");
+        payload.user_name = payload_json.value("username", "");
+        payload.user_id = payload_json.value("userid", -1);
         const std::string role_str = payload_json.value("role", "UNKNOWN");
         payload.role = RolePermissions::RoleFromString(role_str);
         payload.exp = payload_json.value("exp", 0);

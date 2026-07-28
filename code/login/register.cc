@@ -212,8 +212,18 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
         co_return;
     }
 
+    // 查找分配的id
+    std::string find_user_id = "select users.user_id from users where username = '" + username + "';";
+    auto resp_find_user_id = co_await DB::Mysql::getInstance()->executeQuery(cmd);
+    resp_find_user_id->formatDate();
+    if (resp_find_user_id->getState() != IOState::SUCCESS) {
+        M_SYLAR_LOG_ERROR(j_logger) << "failed to fetch all users in MySQL query";
+    }
+    JettyCat::chat::userId user_id = std::stoi((*resp_find_user_id)["user_id"][0]);
+
+
     // 构建jwt并响应
-    std::string jwt = JWT::generateJWT(username, RolePermissions::USER);
+    std::string jwt = JWT::generateJWT(username, RolePermissions::USER, user_id);
     nlohmann::json j;
     j["status"] = "success";
 
@@ -252,24 +262,18 @@ m_sylar::Task<void> Register::coLogin(m_sylar::http::HttpSession::ptr session) {
     // std::string password_hash = Encode::base64Encode(hashed_password) + "," + Encode::base64Encode(salt);
 
     // 密码、角色查询
-    std::string get_role_query = "SELECT role, password_hash FROM users WHERE username='" + username + "';";
-    // M_SYLAR_LOG_INFO(j_logger) << "execute sql: " << get_role_query;
-    MySQLResp::ptr role = co_await m_sylar::DB::Mysql::getInstance()->executeQuery(get_role_query);
-    // M_SYLAR_LOG_INFO(j_logger) << "foramtting database response";
-    role->formatDate();
-
-    if(role->getColCount() != 2) {
-        nlohmann::json j;
-        j["status"] = "error";
-        j["error"] = "Internal Server Error";
-        M_SYLAR_LOG_WARN(j_logger) <<  "Database query failed for user " << username << ": No columns returned";
-        resp->appendHeader("Content-Type", "application/json");
-        resp->setBody(j.dump());
-        resp->setStatus(http::StatusCode::internal_server_error);
-        co_await session->co_sendResp();
-        co_return;
+    IOState state = IOState::SUCCESS;
+    auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
+    MySQLStmt<STMT_Text<16>, STMT_Text<255>, int> stmt{conn_wrap};
+    std::string get_role_query = "SELECT role, password_hash, user_id FROM users WHERE username= ? ;";
+    state = co_await stmt.co_execute(get_role_query, username);
+    state = co_await stmt.co_storeAll();
+    state = co_await stmt.co_fetchAll();
+    auto result = stmt.getResult().getAll();
+    if (state != IOState::SUCCESS) {
+        M_SYLAR_LOG_ERROR(gdb_logger) << "failed to run stmt cmd\n";
     }
-    if(role->getRowCount() == 0) {
+    if (result.empty()) {
         nlohmann::json j;
         j["status"] = "failed";
         j["error"] = "Invalid username or password";
@@ -279,22 +283,12 @@ m_sylar::Task<void> Register::coLogin(m_sylar::http::HttpSession::ptr session) {
         co_await session->co_sendResp();
         co_return;
     }
-    else if(role->getRowCount() > 1) {
-        nlohmann::json j;
-        j["status"] = "error";
-        j["error"] = "Internal Server Error";
-        M_SYLAR_LOG_FATAL(j_logger) <<  "Database query failed for user " << username << ": Multiple rows returned";
-        resp->appendHeader("Content-Type", "application/json");
-        resp->setBody(j.dump());
-        resp->setStatus(http::StatusCode::internal_server_error);
-        co_await session->co_sendResp();
-        co_return;
-    }
+    const std::string role_val = std::get<0>(result[0]).toString();
+    const std::string stored_password_hash = std::get<1>(result[0]).toString();
+    const JettyCat::chat::userId user_id = std::get<2>(result[0]);
+
 
     // 验证密码
-    std::string role_val = (*role)["role"][0];
-    std::string stored_password_hash = (*role)["password_hash"][0];
-    // M_SYLAR_LOG_INFO(j_logger) << "Retrieved role: " << role_val << " and password hash for user " << username;
     if(false == Hash::verifyPassword(password, stored_password_hash)) {
         nlohmann::json j;
         j["status"] = "failed";
@@ -308,7 +302,7 @@ m_sylar::Task<void> Register::coLogin(m_sylar::http::HttpSession::ptr session) {
     // M_SYLAR_LOG_INFO(j_logger) << "user " << username << " login with role " << role_val;
     nlohmann::json j;
     j["status"] = "success";
-    std::string jwt = JWT::generateJWT(username, RolePermissions::RoleFromString(role_val));
+    std::string jwt = JWT::generateJWT(username, RolePermissions::RoleFromString(role_val), user_id);
     std::string cookie = "jwttoken=" + jwt + "; HttpOnly; SameSite=Strict; Path=/";
     resp->appendHeader("Content-Type", "application/json");
     resp->appendHeader("Set-Cookie", cookie);
@@ -316,5 +310,3 @@ m_sylar::Task<void> Register::coLogin(m_sylar::http::HttpSession::ptr session) {
     co_await session->co_sendResp();
     co_return;
 }
-
-

@@ -59,7 +59,7 @@ m_sylar::Task<void> ChatHandler::co_onOpen(std::shared_ptr<WsSession> session) {
     JWT::Payload payload = JWT::parserPayload(jwttoken);
 
     // 用户其余信息获取
-    std::string cmd = "select users.user_id from users where username = '" + payload.username + "';";
+    std::string cmd = "select users.user_id from users where username = '" + payload.user_name + "';";
     auto resp = co_await DB::Mysql::getInstance()->executeQuery(cmd);
     resp->formatDate();
     if (resp->getState() != IOState::SUCCESS) {
@@ -69,13 +69,13 @@ m_sylar::Task<void> ChatHandler::co_onOpen(std::shared_ptr<WsSession> session) {
 
     // 存储用户id--sessionId映射关系
     M_SYLAR_LOG_DEBUG(g_logger) << "WebSocket connection opened, storing id, sessionId";
-    M_SYLAR_LOG_DEBUG(g_logger) << "WebSocket connection opened, storing id, sessionId, user=" << payload.username << ", sessionId=" << sessionId;
+    M_SYLAR_LOG_DEBUG(g_logger) << "WebSocket connection opened, storing id, sessionId, user=" << payload.user_name << ", sessionId=" << sessionId;
 
     cmd = "SADD " + chatWebsocket::formatUserName(user_id) + " " + std::to_string(sessionId);
     m_sylar::RedisResp::ptr reply = co_await m_sylar::DB::Redis::getInstance()->executeQuery(cmd);
 
     if(reply->getState() != m_sylar::IOState::SUCCESS) {
-        M_SYLAR_LOG_ERROR(g_logger) << "Failed to store user-session mapping in Redis for user: " << payload.username;
+        M_SYLAR_LOG_ERROR(g_logger) << "Failed to store user-session mapping in Redis for user: " << payload.user_name;
         // co_await session->co_close(1011, "Internal Server Error");
         co_return;
     }
@@ -84,12 +84,12 @@ m_sylar::Task<void> ChatHandler::co_onOpen(std::shared_ptr<WsSession> session) {
     cmd = "Expire " + chatWebsocket::formatUserName(user_id) + " 36000";
     reply = co_await m_sylar::DB::Redis::getInstance()->executeQuery(cmd);
     if(reply->getState() != m_sylar::IOState::SUCCESS) {
-        M_SYLAR_LOG_WARN(g_logger) << "Failed to set expiration for user-session mapping in Redis for user: " << payload.username;
+        M_SYLAR_LOG_WARN(g_logger) << "Failed to set expiration for user-session mapping in Redis for user: " << payload.user_name;
         co_await session->co_close(1011, "Internal Server Error");
         cmd = "DEL " + chatWebsocket::formatUserName(user_id);
         reply = co_await m_sylar::DB::Redis::getInstance()->executeQuery(cmd);
         if(reply->getState() != m_sylar::IOState::SUCCESS) {
-            M_SYLAR_LOG_ERROR(g_logger) << "Failed to delete user-session mapping in Redis for user: " << payload.username;
+            M_SYLAR_LOG_ERROR(g_logger) << "Failed to delete user-session mapping in Redis for user: " << payload.user_name;
         }
         co_return;
     }
@@ -101,11 +101,11 @@ m_sylar::Task<void> ChatHandler::co_onOpen(std::shared_ptr<WsSession> session) {
     try {
         auto user = std::make_shared<UserChatInfo>();
         user->user_id = user_id;
-        user->user_name = payload.username;
+        user->user_name = payload.user_name;
         user->role = payload.role;
         session->setData(user);
     } catch (std::exception& e) {
-        M_SYLAR_LOG_ERROR(g_logger) << "failed to transform " << payload.username << " to int";
+        M_SYLAR_LOG_ERROR(g_logger) << "failed to transform " << payload.user_name << " to int";
         rt = 1;
     }
     if (rt) {
@@ -123,8 +123,8 @@ m_sylar::Task<void> ChatHandler::co_onOpen(std::shared_ptr<WsSession> session) {
     nlohmann::json j;
     j["code"] = http::StatusCode::ok;
     j["from"] = "system";
-    j["to"] = payload.username;
-    j["message"] = "wellcome, " + payload.username + "!";
+    j["to"] = payload.user_name;
+    j["message"] = "wellcome, " + payload.user_name + "!";
     wellcome_frame.setTextPayload(j.dump());
     co_await session->co_sendFrame(wellcome_frame);
     M_SYLAR_LOG_DEBUG(g_logger) << "co_open connection finished, sessionId=" << sessionId;
