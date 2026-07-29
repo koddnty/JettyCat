@@ -46,7 +46,7 @@ m_sylar::Task<void> ChatHandler::co_onOpen(std::shared_ptr<WsSession> session) {
     if(JWT::State::SUCCESS != JWT::verifyJWT(jwttoken)) {     // 无法验证jwt，关闭连接
         websocket::Frame frame;
         nlohmann::json j;
-        j["status"] = "success";
+        j["status"] = "failed";
         j["from"] = "system";
         j["message"] = "Unauthorized";
         frame.setTextPayload(j.dump());
@@ -187,7 +187,7 @@ m_sylar::Task<void> ChatHandler::co_onMessage(std::shared_ptr<WsSession> session
     JettyCat::chat::Message single_msg;
     single_msg.setFrom(user_id).setContent(message["message"]).setType(std::string(message["type"]));
     msg_list.push_back(single_msg);
-    if (JettyCat::chat::State::SUCCESS != co_await sendToUser(user_id, msg_list)) {
+    if (JettyCat::chat::State::SUCCESS != co_await sendToUser(message["to"] , msg_list)) {
         M_SYLAR_LOG_ERROR(g_logger) << "failed to send message to user";
         session->co_close(1011, "Internal Server Error(failed to send message to user)");
         co_return;
@@ -299,7 +299,7 @@ m_sylar::Task<void> ChatHandler::co_onClose(std::shared_ptr<WsSession> session, 
     const auto user = std::dynamic_pointer_cast<UserChatInfo>(session->getData());
 
     // 删除用户id--sessionId映射关系
-    std::string cmd = "SREM " + chatWebsocket::formatUserName(user->user_name) + " " + std::to_string(sessionId);
+    const std::string cmd = "SREM " + chatWebsocket::formatUserName(user->user_id) + " " + std::to_string(sessionId);
     m_sylar::RedisResp::ptr reply = co_await m_sylar::DB::Redis::getInstance()->executeQuery(cmd);
     if(reply->getState() != m_sylar::IOState::SUCCESS) {
         M_SYLAR_LOG_ERROR(g_logger) << "Failed to delete user-session mapping in Redis for user: " << user->user_name;
@@ -318,7 +318,7 @@ m_sylar::Task<void> ChatHandler::co_onBadClose(std::shared_ptr<WsSession> sessio
     const auto user = std::dynamic_pointer_cast<UserChatInfo>(session->getData());
 
     // 删除用户id--sessionId映射关系
-    const std::string cmd = "SREM " + chatWebsocket::formatUserName(user->user_name) + " " + std::to_string(sessionId);
+    const std::string cmd = "SREM " + chatWebsocket::formatUserName(user->user_id) + " " + std::to_string(sessionId);
     const RedisResp::ptr reply = co_await m_sylar::DB::Redis::getInstance()->executeQuery(cmd);
     if(reply->getState() != m_sylar::IOState::SUCCESS) {
         M_SYLAR_LOG_ERROR(g_logger) << "Failed to delete user-session mapping in Redis for user: " << user->user_name;

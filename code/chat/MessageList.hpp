@@ -57,6 +57,9 @@ private:
     userId m_from {-1};                  // 来源
     Type m_type {Type::TEXT};        // 类型
     std::string m_content;          // 根据Type决定消息类型
+
+
+    // state<->string转换映射
     inline static std::map<std::string, Type> m_STT{
         {"TEXT", Type::TEXT},
         {"IMAGE", Type::IMAGE},

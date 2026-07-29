@@ -55,3 +55,5 @@ nginx.conf
 /.clang-format
 usages
 test
+CLAUDE.md
+private
