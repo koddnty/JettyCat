@@ -35,6 +35,8 @@ public:
     Message(const Message&) = default;
     Message& operator=(const Message& other) = default;
 
+    int load(const nlohmann::json& json);
+    int load(const std::string& raw_json);
 
     inline Message& setContent(const std::string& content) {m_content = content; return *this;}
     inline Message& setType(const Type type) {m_type = type; return *this;}
@@ -57,7 +59,6 @@ private:
     userId m_from {-1};                  // 来源
     Type m_type {Type::TEXT};        // 类型
     std::string m_content;          // 根据Type决定消息类型
-
 
     // state<->string转换映射
     inline static std::map<std::string, Type> m_STT{

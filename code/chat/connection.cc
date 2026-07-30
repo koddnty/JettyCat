@@ -1,6 +1,7 @@
 #include "init.hpp"
 #include "tools.hpp"
 #include "connection.hpp"
+#include "chatter.hpp"
 #include "login/tools.hpp"
 #include "MessageList.hpp"
 #include <basic/config.h>
@@ -44,12 +45,11 @@ m_sylar::Task<void> ChatHandler::co_onOpen(std::shared_ptr<WsSession> session) {
 
     M_SYLAR_LOG_DEBUG(g_logger) << "WebSocket connection opened, sessionId=" << sessionId << ", jwtToken=" << jwttoken;
     if(JWT::State::SUCCESS != JWT::verifyJWT(jwttoken)) {     // 无法验证jwt，关闭连接
+        chatter::WsMessage err_msg;
+        err_msg.setStatusCode(http::StatusCode::unauthorized)
+            .setFrom(0);
         websocket::Frame frame;
-        nlohmann::json j;
-        j["status"] = "failed";
-        j["from"] = "system";
-        j["message"] = "Unauthorized";
-        frame.setTextPayload(j.dump());
+        frame.setTextPayload(err_msg.dump());
         co_await session->co_sendFrame(frame);
         co_await session->co_close(1008, "Unauthorized");
         co_return;
@@ -68,7 +68,6 @@ m_sylar::Task<void> ChatHandler::co_onOpen(std::shared_ptr<WsSession> session) {
     JettyCat::chat::userId user_id = std::stoi((*resp)["user_id"][0]);
 
     // 存储用户id--sessionId映射关系
-    M_SYLAR_LOG_DEBUG(g_logger) << "WebSocket connection opened, storing id, sessionId";
     M_SYLAR_LOG_DEBUG(g_logger) << "WebSocket connection opened, storing id, sessionId, user=" << payload.user_name << ", sessionId=" << sessionId;
 
     cmd = "SADD " + chatWebsocket::formatUserName(user_id) + " " + std::to_string(sessionId);
@@ -76,7 +75,6 @@ m_sylar::Task<void> ChatHandler::co_onOpen(std::shared_ptr<WsSession> session) {
 
     if(reply->getState() != m_sylar::IOState::SUCCESS) {
         M_SYLAR_LOG_ERROR(g_logger) << "Failed to store user-session mapping in Redis for user: " << payload.user_name;
-        // co_await session->co_close(1011, "Internal Server Error");
         co_return;
     }
 
@@ -96,7 +94,6 @@ m_sylar::Task<void> ChatHandler::co_onOpen(std::shared_ptr<WsSession> session) {
 
 
     // 设置会话用户信息
-
     int rt = 0;
     try {
         auto user = std::make_shared<UserChatInfo>();
@@ -118,14 +115,14 @@ m_sylar::Task<void> ChatHandler::co_onOpen(std::shared_ptr<WsSession> session) {
     // 连接成功
     // 发送欢迎消息
     M_SYLAR_LOG_DEBUG(g_logger) << "websocket connection successed";
+    chatter::WsMessage welcome_msg;
+    welcome_msg.setStatusCode(http::StatusCode::ok)
+        .setFrom(0)
+        .setTo(user_id)
+        .setContent("wellcome, " + payload.user_name + "!");
     websocket::Frame wellcome_frame;
     wellcome_frame.setOpcode(websocket_flags::WS_OP_TEXT);
-    nlohmann::json j;
-    j["code"] = http::StatusCode::ok;
-    j["from"] = "system";
-    j["to"] = payload.user_name;
-    j["message"] = "wellcome, " + payload.user_name + "!";
-    wellcome_frame.setTextPayload(j.dump());
+    wellcome_frame.setTextPayload(welcome_msg.dump());
     co_await session->co_sendFrame(wellcome_frame);
     M_SYLAR_LOG_DEBUG(g_logger) << "co_open connection finished, sessionId=" << sessionId;
     co_return;
@@ -141,104 +138,124 @@ m_sylar::Task<void> ChatHandler::co_onMessage(std::shared_ptr<WsSession> session
     M_SYLAR_LOG_DEBUG(g_logger) << "co_onMessage, msg:" << msg;
     JettyCat::chat::userId user_id = std::dynamic_pointer_cast<UserChatInfo>(session->getData())->user_id;
 
-    // 解析信息
-    nlohmann::json message;
-    bool status = true;
-    try {
-        message = nlohmann::json::parse(msg);
-        M_SYLAR_LOG_DEBUG(g_logger) << "co_onMessage, parser msg finished";
-    }
-    catch (std::exception& e) {
-        status = false;
-    }
-
-    M_SYLAR_LOG_DEBUG(g_logger) << "message: " << message.dump(4);
-
-    if (!status) {
+    // 解析 — 使用WsMessage统一反序列化，内部处理异常
+    chatter::WsMessage ws_msg;
+    if (ws_msg.load(msg) != 0 || ws_msg.getState() != chatter::WsMessage::State::NORMAL) {
+        M_SYLAR_LOG_WARN(g_logger) << "co_onMessage, failed to parse message";
+        chatter::WsMessage err_msg;
+        err_msg.setStatusCode(http::StatusCode::bad_request, "Failed to parse message")
+            .setFrom(0).setTo(0);
         websocket::Frame rt_frame;
-        nlohmann::json j;
-        j["code"] = http::StatusCode::bad_request;
-        j["reason"] = "Failed to parser message";
-        j["from"] = "system";
-        j["to"] = user_id;
-        rt_frame.setTextPayload(j.dump());
+        rt_frame.setTextPayload(err_msg.dump());
+        co_await session->co_sendFrame(rt_frame);
+        co_return;
+    }
+
+    M_SYLAR_LOG_DEBUG(g_logger) << "co_onMessage, parsed ws_msg: " << ws_msg.dump();
+
+
+    // 字段提取与校验
+    JettyCat::chat::userId sender_id = ws_msg.getFrom();
+    JettyCat::chat::userId receiver_id = ws_msg.getTo();
+    std::string content = ws_msg.getContent();
+
+    if (sender_id != user_id) {
+        M_SYLAR_LOG_WARN(g_logger) << "co_onMessage, incomplete message, sender=" << sender_id
+                                   << " receiver=" << receiver_id << " content_empty=" << content.empty();
+        chatter::WsMessage err_msg;
+        err_msg.setStatusCode(http::StatusCode::bad_request, "Incomplete information")
+            .setFrom(0).setTo(0);
+        websocket::Frame rt_frame;
+        rt_frame.setTextPayload(err_msg.dump());
         co_await session->co_sendFrame(rt_frame);
         co_return;
     }
 
 
-    // 数据完整性检查
-    M_SYLAR_LOG_DEBUG(g_logger) << "co_onMessage, checking data integrity";
-    if (message["from"] != std::to_string(user_id) || message["to"].empty() || message["type"].empty()) {
-        websocket::Frame rt_frame;
-        nlohmann::json j;
-        j["code"] = http::StatusCode::bad_request;
-        j["reason"] = "Incomplete information";
-        j["from"] = "system";
-        j["to"] = std::to_string(user_id);
-        rt_frame.setTextPayload(j.dump());
-        co_await session->co_sendFrame(rt_frame);
-        co_return;
-    };
-
-
-    // 数据库归档
+    // 用户消息 - 数据库归档
     JettyCat::chat::MessageList msg_list;
     JettyCat::chat::Message single_msg;
-    single_msg.setFrom(user_id).setContent(message["message"]).setType(std::string(message["type"]));
+
+    // 从WsMessage.content反序列化业务消息
+    if (single_msg.load(content) != 0) {
+        M_SYLAR_LOG_WARN(g_logger) << "co_onMessage, failed to parse business message content";
+        chatter::WsMessage err_msg;
+        err_msg.setStatusCode(http::StatusCode::bad_request, "Failed to parse message content")
+            .setFrom(0).setTo(0);
+        websocket::Frame rt_frame;
+        rt_frame.setTextPayload(err_msg.dump());
+        co_await session->co_sendFrame(rt_frame);
+        co_return;
+    }
+    single_msg.setFrom(user_id);  // 覆盖from为session用户id，确保安全
     msg_list.push_back(single_msg);
-    if (JettyCat::chat::State::SUCCESS != co_await sendToUser(message["to"] , msg_list)) {
-        M_SYLAR_LOG_ERROR(g_logger) << "failed to send message to user";
-        session->co_close(1011, "Internal Server Error(failed to send message to user)");
+
+    JettyCat::chat::State db_state = co_await sendToUser(receiver_id, msg_list);
+    if (db_state != JettyCat::chat::State::SUCCESS) {
+        M_SYLAR_LOG_ERROR(g_logger) << "failed to persist message to db";
+        chatter::WsMessage err_msg;
+        err_msg.setStatusCode(http::StatusCode::internal_server_error, "Failed to persist message")
+            .setFrom(0).setTo(0);
+        websocket::Frame rt_frame;
+        rt_frame.setTextPayload(err_msg.dump());
+        co_await session->co_sendFrame(rt_frame);
         co_return;
     }
 
 
-    // 信息发送到目标
-    //      查找目标连接id
-    M_SYLAR_LOG_DEBUG(g_logger) << "co_onMessage, selecting target user sessionId";
-    std::string cmd = "SMEMBERS " + chatWebsocket::formatUserName(std::string(message["to"]));
+
+    // 信息发送到目标 — 查找目标连接id
+    M_SYLAR_LOG_DEBUG(g_logger) << "co_onMessage, lookup target sessions, receiver=" << receiver_id;
+    std::string cmd = "SMEMBERS " + chatWebsocket::formatUserName(receiver_id);
     RedisResp::ptr resp = co_await DB::Redis::getInstance()->executeQuery(cmd);
-    if(resp->getState() != m_sylar::IOState::SUCCESS) {
+    if (resp->getState() != m_sylar::IOState::SUCCESS) {
+        M_SYLAR_LOG_ERROR(g_logger) << "co_onMessage, redis query failed";
+        chatter::WsMessage err_msg;
+        err_msg.setStatusCode(http::StatusCode::internal_server_error, "Internal server error")
+            .setFrom(0).setTo(0);
         websocket::Frame rt_frame;
-        nlohmann::json j;
-        j["code"] = http::StatusCode::internal_server_error;
-        j["reason"] = "Internal server error";
-        j["from"] = "system";
-        j["to"] = user_id;
-        rt_frame.setTextPayload(j.dump());
+        rt_frame.setTextPayload(err_msg.dump());
         co_await session->co_sendFrame(rt_frame);
         co_return;
     }
     const std::vector<RedisResp::ptr>& reply = resp->asArray();
     if (reply.empty()) {
+        M_SYLAR_LOG_DEBUG(g_logger) << "co_onMessage, target user offline, receiver=" << receiver_id;
         co_return;
     }
 
-    //      信息构建
-    M_SYLAR_LOG_DEBUG(g_logger) << "co_onMessage, building send message";
-    websocket::Frame frame;
-    frame.setOpcode(websocket_flags::WS_OP_TEXT);
-    nlohmann::json j;
-    j["code"] = http::StatusCode::ok;
-    j["from"] = user_id;
-    j["message"] = message["message"];
-    frame.setTextPayload(j.dump());
 
-    //      消息发送
-    M_SYLAR_LOG_DEBUG(g_logger) << "co_onMessage, sending message";
-    int rt = 0;
+    // 信息构建
+    M_SYLAR_LOG_DEBUG(g_logger) << "co_onMessage, building forward message";
+    chatter::WsMessage fwd_msg;
+    fwd_msg.setStatusCode(http::StatusCode::ok)
+        .setFrom(user_id)
+        .setTo(receiver_id)
+        .setContent(single_msg.dump());
+    std::string payload = fwd_msg.dump();
+    M_SYLAR_LOG_DEBUG(g_logger) << "forward message: " << payload;
+
+ // 消息发送
+    M_SYLAR_LOG_DEBUG(g_logger) << "co_onMessage, forwarding to " << reply.size() << " session(s)";
     auto ws = websocket::WsServer::getInstance();
     for (auto& it : reply) {
-        M_SYLAR_LOG_DEBUG(g_logger) <<"item : " << it->asString() ;
-        int sessionId = std::stoi(it->asString()) ;
-        rt = co_await ws->getSession(sessionId)->co_sendFrame(frame);
+        // M_SYLAR_LOG_DEBUG(g_logger) << "it : " << it->asInt();
+        int session_id = std::stoi(it->asString());
+
+        websocket::Frame frame;
+        frame.setOpcode(websocket_flags::WS_OP_TEXT);
+        frame.setTextPayload(payload);
+
+        auto target_session = ws->getSession(session_id);
+        int rt = co_await target_session->co_sendFrame(frame);
         if (rt < 0) {
-            M_SYLAR_LOG_WARN(g_logger) << "Failed to send frame when broadcast message to others.";
+            M_SYLAR_LOG_DEBUG(g_logger) << "Failed to send frame to session " << session_id;
         }
     }
 
-    //      消息持久化
+
+
+
     M_SYLAR_LOG_DEBUG(g_logger) << "co_onMessage finished";
     co_return;
 }
@@ -246,13 +263,12 @@ m_sylar::Task<void> ChatHandler::co_onMessage(std::shared_ptr<WsSession> session
 
 
 m_sylar::Task<void> ChatHandler::co_onBinary(std::shared_ptr<WsSession> session, const std::vector<uint8_t>& data) {
+    chatter::WsMessage err_msg;
+    err_msg.setStatusCode(http::StatusCode::bad_request, "unsupported binary message")
+        .setFrom(0);
     websocket::Frame frame;
     frame.setOpcode(websocket_flags::WS_OP_TEXT);
-    nlohmann::json j;
-    j["status"] = "bad msg";
-    j["from"] = "system";
-    j["message"] = "unsopport binary message";
-    frame.setTextPayload(j.dump());
+    frame.setTextPayload(err_msg.dump());
     co_await session->co_sendFrame(frame);
     co_return;
 }
@@ -296,14 +312,18 @@ m_sylar::Task<void> ChatHandler::co_onClose(std::shared_ptr<WsSession> session, 
         co_return;
     }
 
-    const auto user = std::dynamic_pointer_cast<UserChatInfo>(session->getData());
-
     // 删除用户id--sessionId映射关系
-    const std::string cmd = "SREM " + chatWebsocket::formatUserName(user->user_id) + " " + std::to_string(sessionId);
-    m_sylar::RedisResp::ptr reply = co_await m_sylar::DB::Redis::getInstance()->executeQuery(cmd);
-    if(reply->getState() != m_sylar::IOState::SUCCESS) {
-        M_SYLAR_LOG_ERROR(g_logger) << "Failed to delete user-session mapping in Redis for user: " << user->user_name;
+    auto data = session->getData();
+    if (data) {
+        const auto user = std::dynamic_pointer_cast<UserChatInfo>(data);
+        const std::string cmd = "SREM " + chatWebsocket::formatUserName(user->user_id) + " " + std::to_string(sessionId);
+        m_sylar::RedisResp::ptr reply = co_await m_sylar::DB::Redis::getInstance()->executeQuery(cmd);
+        if(reply->getState() != m_sylar::IOState::SUCCESS) {
+            M_SYLAR_LOG_ERROR(g_logger) << "Failed to delete user-session mapping in Redis for user: " << user->user_name;
+        }
     }
+
+
     co_return;
 }
 

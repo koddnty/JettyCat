@@ -39,6 +39,37 @@ std::string Message::dump() const {
     return j.dump();
 }
 
+int Message::load(const nlohmann::json& j) {
+    try {
+        if (j.contains("date") && j["date"].is_number()) {
+            m_date = j["date"].get<uint64_t>();
+        }
+        if (j.contains("from") && j["from"].is_number_integer()) {
+            m_from = j["from"].get<userId>();
+        }
+        if (j.contains("type") && j["type"].is_string()) {
+            m_type = StringToType(j["type"].get<std::string>());
+        }
+        if (j.contains("content") && j["content"].is_string()) {
+            m_content = j["content"].get<std::string>();
+        }
+        return 0;
+    } catch (const std::exception& e) {
+        M_SYLAR_LOG_ERROR(g_logger) << "failed to parse message: " << e.what();
+        return -1;
+    }
+}
+
+int Message::load(const std::string& raw_json) {
+    try {
+        nlohmann::json j = nlohmann::json::parse(raw_json);
+        return load(j);
+    } catch (const std::exception& e) {
+        M_SYLAR_LOG_ERROR(g_logger) << "failed to parse message json: " << e.what();
+        return -1;
+    }
+}
+
 
 m_sylar::Task<State> sendToUser(const userId& user_id, const MessageList& message_list) {
     const std::string sql = "insert into user_message (sender_id, receiver_id, content, extra) values (?, ?, ?, ?)";

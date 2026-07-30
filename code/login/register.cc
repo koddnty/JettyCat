@@ -214,7 +214,7 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
 
     // 查找分配的id
     std::string find_user_id = "select users.user_id from users where username = '" + username + "';";
-    auto resp_find_user_id = co_await DB::Mysql::getInstance()->executeQuery(cmd);
+    auto resp_find_user_id = co_await DB::Mysql::getInstance()->executeQuery(find_user_id);
     resp_find_user_id->formatDate();
     if (resp_find_user_id->getState() != IOState::SUCCESS) {
         M_SYLAR_LOG_ERROR(j_logger) << "failed to fetch all users in MySQL query";
