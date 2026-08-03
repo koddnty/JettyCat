@@ -2,7 +2,7 @@
 #include <cstdlib>
 #include <ctime>
 
-#include "chat/MessageList.hpp"
+#include "chat/Message.hpp"
 
 static m_sylar::Logger::ptr j_logger = M_SYLAR_LOG_NAME("jettyCat");
 using namespace m_sylar;

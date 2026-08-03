@@ -1,7 +1,7 @@
 #pragma once
 #include <string>
 #include "init.hpp"
-#include "MessageList.hpp"
+#include "Message.hpp"
 
 namespace chatWebsocket {
     inline std::string formatUserName(const std::string& user_id) {

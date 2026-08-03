@@ -2,8 +2,9 @@
 #include "publicHeader.hpp"
 #include <sylar/server/websocket/wsserver.hpp>
 
-
-
+/**
+ * 负责websocket连接的通信
+ */
 class ChatHandler : public m_sylar::websocket::WsHandler {
 public:
     using WsSession = m_sylar::websocket::WsSession;

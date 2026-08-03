@@ -117,12 +117,13 @@ m_sylar::Task<State>fetchFromGroup(const groupId& group_id, size_t offset, Messa
 
 /**
  * @brief 从当前用户收件箱拉取消息,返回10条消息,(返回的消息条数)通过配置文件配置
- * @param sender_id 当前用户id
+ * @param sender_id 消息发送者id(即聊天对方)
+ * @param receiver_id 当前用户id,即消息接收者id
  * @param offset 偏移量(翻页)
  * @param message_list 接受到的消息列表
  * @return
  */
-m_sylar::Task<State>fetchFromInbox(const userId& sender_id, size_t offset, MessageList& message_list);            // 从收件箱接受消息
+m_sylar::Task<State>fetchFromInbox(const userId& sender_id, const userId& receiver_id, size_t offset, MessageList& message_list);            // 从收件箱接受消息
 
 };
 

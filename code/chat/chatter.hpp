@@ -2,10 +2,19 @@
 #include "publicHeader.hpp"
 #include <nlohmann/json.hpp>
 #include "connection.hpp"
-#include "MessageList.hpp"
+#include "Message.hpp"
+
+
+/**
+ * 聊天模块 http路由配置与消息处理
+ */
 
 
 namespace chatter {
+inline ConfigVar<uint64_t>::ptr single_fetch_count =
+    ConfigManager::LookUp<size_t>("chatter.single_fetch_count", 15, JettyCat_CONFIG_ID, "单次获取历史消息数量");
+
+
 
 // websocket通信序列化/反序列化类
 class WsMessage {
@@ -53,9 +62,9 @@ private:
 
 
 
-static void registeUrl(m_sylar::http::HttpServer::ptr server);
-static m_sylar::Task<void> co_connect(m_sylar::http::HttpSession::ptr session);
-static m_sylar::Task<void> coGetChatterList(m_sylar::http::HttpSession::ptr session);
+void registeUrl(const http::HttpServer::ptr& server, const websocket::WsServer::ptr& ws_server);
+Task<void> co_FetchUserMessage(http::HttpSession::ptr session);     // 返回部分消息.
+Task<void> co_FetchGroupMessage(http::HttpSession::ptr session);     // 返回部分消息.
 }
 
 

@@ -1,7 +1,7 @@
 //
 // Created by koddnty on 2026/7/14.
 //
-#include "MessageList.hpp"
+#include "Message.hpp"
 
 
 
@@ -172,17 +172,16 @@ m_sylar::Task<State> fetchFromGroup(const groupId& group_id, size_t offset, Mess
     co_return State::SUCCESS;
 }
 
-
-m_sylar::Task<State> fetchFromInbox(const userId& sender_id, size_t offset, MessageList& message_list) {
-    const std::string sql = "select msg_type, content, UNIX_TIMESTAMP(send_time) from user_message where user_message.sender_id = ? order by user_message.send_time desc limit 10 offset ?";
+m_sylar::Task<State> fetchFromInbox(const userId& sender_id, const userId& receiver_id, size_t offset, MessageList& message_list) {
+    const std::string sql = "select sender_id, msg_type, content, UNIX_TIMESTAMP(send_time) from user_message where user_message.sender_id = ? and user_message.receiver_id = ? order by user_message.send_time desc limit 10 offset ?";
     const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
-    MySQLStmt<STMT_Text<36>, STMT_Text<2048>, uint64_t> stmt {conn_wrap};
+    MySQLStmt<int, STMT_Text<36>, STMT_Text<2048>, uint64_t> stmt {conn_wrap};
 
     // 执行语句
     IOState state = IOState::TIMEOUT;
     int count = 3;
     while (state == IOState::TIMEOUT && count--) {
-        state = co_await stmt.co_execute(sql, sender_id, offset);
+        state = co_await stmt.co_execute(sql, sender_id, receiver_id, offset);
     }
     // 状态检查
     switch (state) {
@@ -208,12 +207,11 @@ m_sylar::Task<State> fetchFromInbox(const userId& sender_id, size_t offset, Mess
 
     // 结果写入
     for (auto result = stmt.getResult().getAll(); auto& it : result) {
-        auto cs = std::get<1>(it).toString();
         Message message;
-        message.setDate(std::get<2>(it))
-            .setContent(std::get<1>(it).toString())
-            .setType(std::get<0>(it).toString())
-            .setFrom(sender_id);
+        message.setDate(std::get<3>(it))
+            .setContent(std::get<2>(it).toString())
+            .setType(std::get<1>(it).toString())
+            .setFrom(std::get<0>(it));
         message_list.push_back(message);
     }
     co_return State::SUCCESS;

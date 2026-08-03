@@ -5,7 +5,7 @@
 #include <nlohmann/json.hpp>
 #include <basic/log.h>
 #include "publicHeader.hpp"
-#include "chat/MessageList.hpp"
+#include "chat/Message.hpp"
 
 class RolePermissions {
 public:

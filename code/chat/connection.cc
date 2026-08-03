@@ -3,7 +3,7 @@
 #include "connection.hpp"
 #include "chatter.hpp"
 #include "login/tools.hpp"
-#include "MessageList.hpp"
+#include "Message.hpp"
 #include "WsMessageRouter.hpp"
 #include <basic/config.h>
 
@@ -51,6 +51,7 @@ m_sylar::Task<void> ChatHandler::co_onOpen(std::shared_ptr<WsSession> session) {
         err_msg.setStatusCode(http::StatusCode::unauthorized)
                .setFrom(0);
         websocket::Frame frame;
+        frame.setOpcode(websocket_flags::WS_OP_TEXT);
         frame.setTextPayload(err_msg.dump());
         co_await session->co_sendFrame(frame);
         co_await session->co_close(1008, "Unauthorized");
@@ -157,6 +158,7 @@ static m_sylar::Task<void> handlePrivateMessage(std::shared_ptr<ChatHandler::WsS
         err_msg.setStatusCode(http::StatusCode::bad_request, "Sender mismatch")
                .setFrom(0).setTo(0);
         websocket::Frame rt_frame;
+        rt_frame.setOpcode(websocket_flags::WS_OP_TEXT);
         rt_frame.setTextPayload(err_msg.dump());
         co_await session->co_sendFrame(rt_frame);
         co_return;
@@ -171,6 +173,7 @@ static m_sylar::Task<void> handlePrivateMessage(std::shared_ptr<ChatHandler::WsS
         err_msg.setStatusCode(http::StatusCode::bad_request, "Failed to parse message content")
                .setFrom(0).setTo(0);
         websocket::Frame rt_frame;
+        rt_frame.setOpcode(websocket_flags::WS_OP_TEXT);
         rt_frame.setTextPayload(err_msg.dump());
         co_await session->co_sendFrame(rt_frame);
         co_return;
@@ -186,6 +189,7 @@ static m_sylar::Task<void> handlePrivateMessage(std::shared_ptr<ChatHandler::WsS
         err_msg.setStatusCode(http::StatusCode::internal_server_error, "Failed to persist message")
                .setFrom(0).setTo(0);
         websocket::Frame rt_frame;
+        rt_frame.setOpcode(websocket_flags::WS_OP_TEXT);
         rt_frame.setTextPayload(err_msg.dump());
         co_await session->co_sendFrame(rt_frame);
         co_return;
@@ -201,6 +205,7 @@ static m_sylar::Task<void> handlePrivateMessage(std::shared_ptr<ChatHandler::WsS
         err_msg.setStatusCode(http::StatusCode::internal_server_error, "Internal server error")
                .setFrom(0).setTo(0);
         websocket::Frame rt_frame;
+        rt_frame.setOpcode(websocket_flags::WS_OP_TEXT);
         rt_frame.setTextPayload(err_msg.dump());
         co_await session->co_sendFrame(rt_frame);
         co_return;
@@ -262,6 +267,7 @@ m_sylar::Task<void> ChatHandler::co_onMessage(std::shared_ptr<WsSession> session
         err_msg.setStatusCode(http::StatusCode::bad_request, "Failed to parse message")
                .setFrom(0).setTo(0);
         websocket::Frame rt_frame;
+        rt_frame.setOpcode(websocket_flags::WS_OP_TEXT);
         rt_frame.setTextPayload(err_msg.dump());
         co_await session->co_sendFrame(rt_frame);
         co_return;
@@ -276,6 +282,7 @@ m_sylar::Task<void> ChatHandler::co_onMessage(std::shared_ptr<WsSession> session
         err_msg.setStatusCode(http::StatusCode::not_found, "Unknown message type: " + ws_msg.getType())
                .setFrom(0).setTo(0);
         websocket::Frame rt_frame;
+        rt_frame.setOpcode(websocket_flags::WS_OP_TEXT);
         rt_frame.setTextPayload(err_msg.dump());
         co_await session->co_sendFrame(rt_frame);
     }
