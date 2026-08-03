@@ -6,6 +6,8 @@
 
 
 namespace chatter {
+
+// websocket通信序列化/反序列化类
 class WsMessage {
 public:
     explicit WsMessage() = default;
@@ -25,10 +27,12 @@ public:
     WsMessage& setContent(const std::string& content) {m_state = State::NORMAL; m_content = content; return *this; }
     WsMessage& setFrom(const JettyCat::chat::userId id) {m_state = State::NORMAL; m_from = id; return *this; }
     WsMessage& setTo(const JettyCat::chat::userId id) {m_state = State::NORMAL; m_to = id; return *this; }
+    WsMessage& setType(const std::string& type) {m_state = State::NORMAL; m_type = type; return *this; }
 
     [[nodiscard]] inline http::StatusCode getStatusCode() const {return m_code;}
     [[nodiscard]] inline std::string getReason() const {return m_reason;}
     [[nodiscard]] inline std::string getContent() const {return m_content;}
+    [[nodiscard]] inline std::string getType() const {return m_type;}
     [[nodiscard]] inline JettyCat::chat::userId getFrom() const {return m_from;}
     [[nodiscard]] inline JettyCat::chat::userId getTo() const {return m_to;}
 
@@ -39,30 +43,23 @@ public:
 private:
     State m_state {State::EMPTY};
     http::StatusCode m_code{http::StatusCode::ok};      // 复用http状态
+    std::string m_type;                                 // 消息类别,用于路由分发("private_message","group_message","fetch_inbox"等)
     JettyCat::chat::userId m_from{0};                   // 消息来源, 0表示系统消息,其他代表用户id
     JettyCat::chat::userId m_to{0};                     // 消息接受者,0表示内部消息,不需要用户查看,其余的待定
     std::string m_reason{"ok"};                         // 复用http reson,通常会在设置好code后自动改变,除非手动改变
     std::string m_content;                              // 消息内容,通常填入一个json字段,来源于MessageList.hpp中Message结构体
 };
 
+
+
+
+static void registeUrl(m_sylar::http::HttpServer::ptr server);
+static m_sylar::Task<void> co_connect(m_sylar::http::HttpSession::ptr session);
+static m_sylar::Task<void> coGetChatterList(m_sylar::http::HttpSession::ptr session);
 }
 
 
 
 
-
-class Chatter{
-public:
-    Chatter() = default;
-    ~Chatter() = default;
-
-    // interface
-public:
-    static void registeUrl(m_sylar::http::HttpServer::ptr server);
-
-    static m_sylar::Task<void> co_connect(m_sylar::http::HttpSession::ptr session);
-
-    static m_sylar::Task<void> coGetChatterList(m_sylar::http::HttpSession::ptr session);
-};
 
 

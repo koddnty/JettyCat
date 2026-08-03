@@ -15,6 +15,9 @@ int WsMessage::load(const nlohmann::json& json) {
         if (json.contains("to") && json["to"].is_number_integer()) {
             m_to = json["to"].get<JettyCat::chat::userId>();
         }
+        if (json.contains("type") && json["type"].is_string()) {
+            m_type = json["type"].get<std::string>();
+        }
         // "reson"(dump()的拼写) "reason"(未来的合理拼写)
         if (json.contains("reason") && json["reason"].is_string()) {
             m_reason = json["reason"].get<std::string>();
@@ -57,6 +60,7 @@ WsMessage& WsMessage::setStatusCode(const http::StatusCode status_code, const st
 std::string WsMessage::dump() {
     nlohmann::json json;
     json["code"] = m_code;
+    json["type"] = m_type;
     json["reason"] = m_reason;
     json["content"] = m_content;
     json["from"] = m_from;

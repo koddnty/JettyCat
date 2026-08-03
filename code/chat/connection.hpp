@@ -14,6 +14,9 @@ public:
     static m_sylar::Task<void> co_onClose(std::shared_ptr<WsSession> session, int code, const std::string& reason);      // 连接关闭
     static m_sylar::Task<void> co_onBadClose(std::shared_ptr<WsSession> session);                                        // 连接错误导致的关闭
     static m_sylar::Task<void> co_onError(std::shared_ptr<WsSession> session, const std::string& error);                 // 连接错误
+
+
+
 };
 
 
@@ -26,5 +29,8 @@ public:
     // interface
 public:
     static void registeUrl(m_sylar::websocket::WsServer::ptr server);
+
+    /// 注册所有WsMessage路由 (在registeUrl之后调用)
+    static void initWsRoutes();
 
 };

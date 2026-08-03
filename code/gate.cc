@@ -34,6 +34,9 @@ int main() {
     // 登陆注册等接口
     urlReg(http_server, ws_server);
 
+    // WebSocket消息路由注册
+    ChatWebSocketServer::initWsRoutes();
+
     http_server->start();
 
     projectCleanUp(iom, http_server);
