@@ -59,3 +59,7 @@ CLAUDE.md
 private
 /.mcp.json
 /REVIEW.md
+
+# frontend build tooling
+web/node_modules/
+web/dist/

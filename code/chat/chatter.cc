@@ -102,6 +102,7 @@ Task<void> co_FetchUserMessage(http::HttpSession::ptr session) {
 
     // 获取请求参数
     std::string sender_id_str = req->getParam("senderId");
+    std::string receiver_id_str = req->getParam("receiverId");
     std::string offset_str = req->getParam("offset");
 
     if (sender_id_str.empty()) {
@@ -116,6 +117,7 @@ Task<void> co_FetchUserMessage(http::HttpSession::ptr session) {
     }
 
     JettyCat::chat::userId sender_id = 0;
+    JettyCat::chat::userId receiver_id = 0;
     size_t offset = 0;
     std::string param_err;
     try {
@@ -143,10 +145,48 @@ Task<void> co_FetchUserMessage(http::HttpSession::ptr session) {
         co_return;
     }
 
-    // 从JWT中解析当前用户身份,作为收件箱的接收者id
-    JettyCat::chat::userId receiver_id = JWT::parserPayload(jwt).user_id;
+    // 从JWT中解析当前用户身份
+    JettyCat::chat::userId jwt_user_id = JWT::parserPayload(jwt).user_id;
 
-    // 从数据库拉取消息 (限定发送者与接收者,即"对方发给我的"私聊消息)
+    // 未提供 receiverId 时, 接收者固定为当前登录用户 (拉取"对方发给我的"消息)
+    if (receiver_id_str.empty()) {
+        receiver_id = jwt_user_id;
+    } else {
+        // 提供 receiverId 时, 仅允许拉取"我自己发给对方"的消息 (senderId 必须等于当前登录用户)
+        try {
+            long recv = std::stol(receiver_id_str);
+            if (recv <= 0) {
+                param_err = "BAD_REQUEST: Invalid 'receiverId'";
+            } else {
+                receiver_id = static_cast<JettyCat::chat::userId>(recv);
+            }
+        } catch (const std::exception& e) {
+            param_err = "BAD_REQUEST: Invalid 'receiverId'";
+        }
+        if (sender_id != jwt_user_id) {
+            nlohmann::json j;
+            j["status"] = "failed";
+            j["error"] = "FORBIDDEN: 'receiverId' is only allowed when senderId is yourself";
+            resp->appendHeader("Content-Type", "application/json");
+            resp->setBody(j.dump());
+            resp->setStatus(http::StatusCode::forbidden);
+            co_await session->co_sendResp();
+            co_return;
+        }
+    }
+
+    if (!param_err.empty()) {
+        nlohmann::json j;
+        j["status"] = "failed";
+        j["error"] = param_err;
+        resp->appendHeader("Content-Type", "application/json");
+        resp->setBody(j.dump());
+        resp->setStatus(http::StatusCode::bad_request);
+        co_await session->co_sendResp();
+        co_return;
+    }
+
+    // 从数据库拉取消息 (sender_id -> receiver_id)
     JettyCat::chat::MessageList message_list;
     JettyCat::chat::State state = co_await JettyCat::chat::fetchFromInbox(sender_id, receiver_id, offset, message_list);
 
