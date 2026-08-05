@@ -352,7 +352,7 @@ button {
   border-bottom: 1px solid var(--jet-line);
   background: var(--jet-panel);
   position: relative;
-  z-index: 5;
+  z-index: 50;
 }
 
 .workspace-brand {
@@ -634,6 +634,35 @@ button {
   background: var(--jet-purple-soft);
 }
 
+.sidebar-sort {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 8px;
+}
+
+.sidebar-sort button {
+  flex: 1;
+  padding: 6px 0;
+  border: 1px solid var(--jet-line);
+  border-radius: 8px;
+  color: var(--jet-muted);
+  background: var(--jet-panel);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sidebar-sort button:hover {
+  border-color: #cdc6f6;
+  color: var(--jet-purple);
+}
+
+.sidebar-sort button.active {
+  border-color: var(--jet-purple);
+  color: var(--jet-purple);
+  background: var(--jet-purple-soft);
+  font-weight: 600;
+}
+
 .sidebar-list {
   min-height: 0;
   flex: 1;
@@ -660,6 +689,7 @@ button {
 }
 
 .section-list-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -725,6 +755,34 @@ button {
 .list-time {
   color: #a1a6b4;
   font-size: 10px;
+}
+
+.list-remove {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  color: #a1a6b4;
+  background: var(--jet-panel);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.section-list-item:hover .list-remove {
+  display: flex;
+}
+
+.list-remove:hover {
+  color: #f05c72;
+  background: #ffe8ec;
 }
 
 .list-badge {
@@ -816,11 +874,12 @@ button {
   position: fixed;
   top: 66px;
   right: 20px;
-  z-index: 30;
+  z-index: 2147483647;
   width: min(340px, calc(100% - 40px));
   display: grid;
   gap: 8px;
   pointer-events: none;
+  isolation: isolate;
 }
 
 .notice {
@@ -967,6 +1026,95 @@ button {
   gap: 16px;
 }
 
+.heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.contact-list {
+  list-style: none;
+  margin: 0 0 22px;
+  padding: 0;
+  display: grid;
+  gap: 9px;
+}
+
+.contact-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 1px solid var(--jet-line);
+  border-radius: 14px;
+  background: var(--jet-panel);
+  box-shadow: var(--jet-shadow-sm);
+}
+
+.contact-avatar {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  color: #5d57ad;
+  background: #eae8ff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.contact-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.contact-copy strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.contact-copy small {
+  display: block;
+  margin-top: 3px;
+  color: var(--jet-muted);
+  font-size: 11px;
+}
+
+.contact-open {
+  padding: 7px 12px;
+  border: 1px solid var(--jet-purple);
+  border-radius: 9px;
+  color: var(--jet-purple);
+  background: var(--jet-purple-soft);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.contact-open:hover {
+  background: var(--jet-purple);
+  color: #fff;
+}
+
+.contact-remove {
+  padding: 7px 10px;
+  border: 1px solid var(--jet-line);
+  border-radius: 9px;
+  color: #a1a6b4;
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.contact-remove:hover {
+  border-color: #f5c6ce;
+  color: #f05c72;
+  background: #fff0f2;
+}
+
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -1044,10 +1192,16 @@ button {
 .module-dialog {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: 9999;
   display: grid;
   place-items: center;
   padding: 22px;
+}
+
+.module-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
   background: rgba(24, 28, 44, 0.35);
   backdrop-filter: blur(4px);
 }

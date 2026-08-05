@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useChat } from '../ws';
+import { useChat, lastActiveOf } from '../ws';
 import ChatSection from '../sections/ChatSection';
 import ContactsSection from '../sections/ContactsSection';
 import LiveSection from '../sections/LiveSection';
@@ -17,13 +17,15 @@ const SECTION_META = {
 const SECTION_ORDER = ['chat', 'contacts', 'live', 'analytics'];
 
 export default function MainPage() {
-  const { connected, myId, myName, conversations, notices, dismissNotice, addConversation, connect, disconnect, unread, lastMessages, setActiveKey, clearUnread } = useChat();
+  const { connected, myId, myName, conversations, activity, sortMode, changeSortMode, notices, dismissNotice, addFriend, removeFriend, addGroup, removeGroup, connect, disconnect, unread, lastMessages, setActiveKey, clearUnread, showNotice } = useChat();
   const [section, setSection] = useState('chat');
   const [activeConversation, setActiveConversation] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const [newUserId, setNewUserId] = useState('');
+  const [addMode, setAddMode] = useState('friend');
+  const [newTargetId, setNewTargetId] = useState('');
+  const [addBusy, setAddBusy] = useState(false);
 
   useEffect(() => {
     connect();
@@ -72,17 +74,42 @@ export default function MainPage() {
   };
 
   const openAdd = () => {
-    if (section === 'chat' || section === 'contacts') setAddOpen(true);
+    if (section === 'chat' || section === 'contacts') {
+      setAddOpen(true);
+      setAddMode(section === 'contacts' ? 'friend' : addMode);
+    }
   };
 
-  const startConversation = () => {
-    const value = Number(newUserId);
+  const submitAdd = async () => {
+    const value = Number(newTargetId);
     if (!Number.isInteger(value) || value < 1) return;
-    addConversation('user', value);
-    setAddOpen(false);
-    setNewUserId('');
-    setActiveConversation({ kind: 'user', id: value });
-    if (window.innerWidth <= 820) setSidebarOpen(false);
+    setAddBusy(true);
+    try {
+      const result = addMode === 'group' ? await addGroup(value) : await addFriend(value);
+      if (!result || result.status !== 'success') {
+        showNotice(addMode === 'group' ? '加入群聊' : '添加好友', (result && result.error) || '操作失败, 请稍后重试');
+        return;
+      }
+      setAddOpen(false);
+      setNewTargetId('');
+      setActiveConversation({ kind: addMode === 'group' ? 'group' : 'user', id: value });
+      if (window.innerWidth <= 820) setSidebarOpen(false);
+    } finally {
+      setAddBusy(false);
+    }
+  };
+
+  const handleRemove = async (item) => {
+    const label = item.kind === 'group' ? `退出群聊「${item.name}」?` : `删除好友「${item.name}」?`;
+    if (!window.confirm(label)) return;
+    const result = item.kind === 'group' ? await removeGroup(item.id) : await removeFriend(item.id);
+    if (!result || result.status !== 'success') {
+      showNotice(item.kind === 'group' ? '退出群聊' : '删除好友', (result && result.error) || '操作失败, 请稍后重试');
+      return;
+    }
+    if (activeConversation && activeConversation.kind === item.kind && Number(activeConversation.id) === Number(item.id)) {
+      setActiveConversation(null);
+    }
   };
 
   const logout = () => {
@@ -92,8 +119,10 @@ export default function MainPage() {
 
   const renderSection = () => {
     switch (section) {
-      case 'chat':
-        return <ChatSection active={activeConversation} onSelect={setActiveConversation} />;
+      case 'chat': {
+        const resolved = resolveConversation(activeConversation, conversations);
+        return <ChatSection active={resolved} onSelect={setActiveConversation} />;
+      }
       case 'contacts':
         return <ContactsSection onOpenChat={(item) => { setActiveConversation(item); setSection('chat'); }} />;
       case 'live':
@@ -107,7 +136,7 @@ export default function MainPage() {
     }
   };
 
-  const sidebarItems = buildSidebarItems(section, conversations, activeConversation, unread, lastMessages);
+  const sidebarItems = buildSidebarItems(section, conversations, activeConversation, unread, lastMessages, activity, sortMode);
   const isActive = (key) => key === section;
 
   return (
@@ -181,29 +210,49 @@ export default function MainPage() {
           open={sidebarOpen}
           onSelect={section === 'chat' ? selectConversation : (item) => selectSection(section)}
           onAdd={openAdd}
+          onRemove={section === 'chat' ? handleRemove : null}
+          sortMode={section === 'chat' ? sortMode : null}
+          onSortModeChange={changeSortMode}
         />
 
         <section className="workspace-content">{renderSection()}</section>
       </main>
 
       {addOpen && (
-        <div className="module-dialog">
-          <div className="module-dialog-card">
-            <button className="dialog-close" type="button" aria-label="关闭" onClick={() => setAddOpen(false)}>
-              <svg className="icon" focusable="false" aria-hidden="true"><use href="#icon-close" /></svg>
-            </button>
-            <p className="eyebrow">New conversation</p>
-            <h2>开始一段新对话</h2>
+        <>
+          <div className="module-dialog-backdrop" onClick={() => setAddOpen(false)} />
+          <div className="module-dialog">
+            <div className="module-dialog-card">
+            <p className="eyebrow">New relationship</p>
+            <h2>{addMode === 'group' ? '加入群聊' : '添加好友'}</h2>
+            <div className="mode-switch" role="group" aria-label="添加类型">
+              <button className={`mode-btn${addMode === 'friend' ? ' active' : ''}`} type="button" onClick={() => setAddMode('friend')}>
+                添加好友
+              </button>
+              <button className={`mode-btn${addMode === 'group' ? ' active' : ''}`} type="button" onClick={() => setAddMode('group')}>
+                加入群聊
+              </button>
+            </div>
             <label>
-              对方用户 ID
-              <input type="number" min="1" placeholder="例如 20" value={newUserId} onChange={(e) => setNewUserId(e.target.value)} autoFocus />
+              {addMode === 'group' ? '群聊 ID' : '用户 ID'}
+              <input
+                type="number"
+                min="1"
+                placeholder={addMode === 'group' ? '例如 1' : '例如 20'}
+                value={newTargetId}
+                onChange={(e) => setNewTargetId(e.target.value)}
+                autoFocus
+              />
             </label>
             <div className="dialog-actions">
               <button className="button secondary" type="button" onClick={() => setAddOpen(false)}>取消</button>
-              <button className="button" type="button" onClick={startConversation}>开始聊天</button>
+              <button className="button" type="button" onClick={submitAdd} disabled={addBusy}>
+                {addBusy ? '处理中...' : addMode === 'group' ? '加入' : '添加'}
+              </button>
+            </div>
             </div>
           </div>
-        </div>
+        </>
       )}
 
       <div className="notice-stack" aria-live="polite">
@@ -226,28 +275,51 @@ function initials(name) {
   return String(name || '?').trim().slice(0, 2).toUpperCase();
 }
 
+// 用会话列表中的最新元数据(名称/身份等)补全当前激活的会话对象。
+// 新建会话时只有 kind/id, 列表刷新后这里的 name 会自动带上真实名称。
+function resolveConversation(active, conversations) {
+  if (!active) return null;
+  const match = conversations.find(
+    (item) => item.kind === active.kind && Number(item.id) === Number(active.id)
+  );
+  return match ? { ...active, ...match } : active;
+}
+
 function truncate(text) {
   const s = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
   return s.length > 18 ? s.slice(0, 18) + '…' : s;
 }
 
-function buildSidebarItems(section, conversations, activeConversation, unread, lastMessages) {
+// 聊天列表排序: 默认按名称(拼音/字母), 切换"按活跃"后按会话最近活跃时间降序。
+// 活跃时间来自前端维护的 activity 记录, 详见 ws.jsx 中 ACTIVITY_SOURCES。
+function sortChatItems(items, sortMode) {
+  const sorted = [...items];
+  if (sortMode === 'active') {
+    sorted.sort((a, b) => (b.lastActive || 0) - (a.lastActive || 0));
+  } else {
+    sorted.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hans-CN'));
+  }
+  return sorted;
+}
+
+function buildSidebarItems(section, conversations, activeConversation, unread, lastMessages, activity, sortMode) {
   if (section === 'chat') {
-    return conversations
-      .filter((item) => item.kind === 'user')
-      .map((item) => {
-        const key = `${item.kind}:${item.id}`;
-        const last = lastMessages[key];
-        return {
-          key,
-          kind: item.kind,
-          id: item.id,
-          title: `用户 ${item.id}`,
-          sub: last ? truncate(last) : '点击进入私聊',
-          unread: unread[key] || 0,
-          active: activeConversation && activeConversation.kind === item.kind && Number(activeConversation.id) === Number(item.id),
-        };
-      });
+    const items = conversations.map((item) => {
+      const key = `${item.kind}:${item.id}`;
+      const last = lastMessages[key];
+      const lastActive = lastActiveOf(activity[key]);
+      return {
+        key,
+        kind: item.kind,
+        id: item.id,
+        name: item.name || (item.kind === 'group' ? `群组 ${item.id}` : `用户 ${item.id}`),
+        sub: last ? truncate(last) : (item.kind === 'group' ? '点击进入群聊' : '点击进入私聊'),
+        unread: unread[key] || 0,
+        lastActive,
+        active: activeConversation && activeConversation.kind === item.kind && Number(activeConversation.id) === Number(item.id),
+      };
+    });
+    return sortChatItems(items, sortMode);
   }
   if (section === 'contacts') {
     return [
@@ -267,10 +339,28 @@ function buildSidebarItems(section, conversations, activeConversation, unread, l
   return [{ key: 'prefs', title: '账户偏好', sub: '主题、通知与连接设置' }];
 }
 
-function Sidebar({ section, items, activeKey, open, onSelect, onAdd }) {
+function formatActivityTime(ts) {
+  if (!ts) return '';
+  const diff = Date.now() - Number(ts);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (diff < minute) return '刚刚';
+  if (diff < hour) return `${Math.floor(diff / minute)} 分钟前`;
+  if (diff < day) return `${Math.floor(diff / hour)} 小时前`;
+  if (diff < 7 * day) return `${Math.floor(diff / day)} 天前`;
+  const date = new Date(Number(ts));
+  return `${date.getMonth() + 1}月${date.getDate()}日`;
+}
+
+function Sidebar({ section, items, activeKey, open, onSelect, onAdd, onRemove, sortMode, onSortModeChange }) {
   const [query, setQuery] = useState('');
   const list = section === 'chat'
-    ? items.filter((item) => String(item.id).includes(query))
+    ? items.filter((item) => {
+        if (!query) return true;
+        const q = query.toLowerCase();
+        return item.name.toLowerCase().includes(q) || String(item.id).includes(query);
+      })
     : items.filter((item) => !query || item.title.toLowerCase().includes(query));
 
   return (
@@ -284,6 +374,24 @@ function Sidebar({ section, items, activeKey, open, onSelect, onAdd }) {
           <svg focusable="false" aria-hidden="true"><use href="#icon-plus" /></svg>
         </button>
       </div>
+      {section === 'chat' && (
+        <div className="sidebar-sort" role="group" aria-label="排序方式">
+          <button
+            type="button"
+            className={sortMode === 'name' ? 'active' : ''}
+            onClick={() => onSortModeChange('name')}
+          >
+            按名称
+          </button>
+          <button
+            type="button"
+            className={sortMode === 'active' ? 'active' : ''}
+            onClick={() => onSortModeChange('active')}
+          >
+            按活跃
+          </button>
+        </div>
+      )}
       <div className="sidebar-list">
         {list.length === 0 && (
           <div className="section-list-empty">
@@ -299,15 +407,36 @@ function Sidebar({ section, items, activeKey, open, onSelect, onAdd }) {
             className={`section-list-item${item.kind === 'live' ? ' live' : ''}${item.active || activeKey === item.key ? ' active' : ''}`}
             onClick={() => onSelect(item)}
           >
-            <span className="list-avatar">{initials(item.title)}</span>
+            <span className="list-avatar">{initials(item.name || item.title)}</span>
             <span className="section-list-copy">
-              <strong>{item.title}</strong>
+              <strong>{item.name || item.title}</strong>
               <small>{item.sub}</small>
             </span>
             {item.unread > 0 ? (
               <span className="list-badge">{item.unread > 99 ? '99+' : item.unread}</span>
             ) : (
-              <span className="list-time">{item.time || ''}</span>
+              <span className="list-time">{item.kind === 'live' ? (item.time || '') : formatActivityTime(item.lastActive)}</span>
+            )}
+            {onRemove && (
+              <span
+                className="list-remove"
+                role="button"
+                tabIndex={0}
+                title={item.kind === 'group' ? '退出群聊' : '删除好友'}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove(item);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onRemove(item);
+                  }
+                }}
+              >
+                ×
+              </span>
             )}
           </button>
         ))}

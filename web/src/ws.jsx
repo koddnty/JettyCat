@@ -4,24 +4,52 @@ const ChatContext = createContext(null);
 export const useChat = () => useContext(ChatContext);
 
 const WS_PATH = '/api/chat';
-const CONV_STORE = 'jettycat.chat.conversations';
+const ACTIVITY_STORE = 'jettycat.chat.activity';
+const SORT_STORE = 'jettycat.chat.sortMode';
 
-function loadConversations() {
+// 活跃来源注册表。新增活跃来源时, 在这里登记并在事件发生处调用
+// `touchActivity(kind, id, source, ts)` 即可, 会话的 "最近活跃时间" 取该会话
+// 所有来源时间戳的最大值。后端不维护该数据, 完全由前端在本地记录。
+const ACTIVITY_SOURCES = {
+  message: '最新消息',
+  friend_added: '添加好友',
+  group_joined: '加入群聊',
+};
+
+export function lastActiveOf(sources) {
+  let last = 0;
+  if (sources && typeof sources === 'object') {
+    for (const key of Object.keys(sources)) {
+      const ts = Number(sources[key]) || 0;
+      if (ts > last) last = ts;
+    }
+  }
+  return last;
+}
+
+function loadActivity() {
   try {
-    const value = JSON.parse(localStorage.getItem(CONV_STORE) || '[]');
-    return Array.isArray(value)
-      ? value.filter((item) => item && (item.kind === 'user' || item.kind === 'group') && Number(item.id) > 0)
-      : [];
+    const value = JSON.parse(localStorage.getItem(ACTIVITY_STORE) || '{}');
+    return value && typeof value === 'object' ? value : {};
   } catch (error) {
-    return [];
+    return {};
   }
 }
 
-function saveConversations(list) {
+function saveActivity(activity) {
   try {
-    localStorage.setItem(CONV_STORE, JSON.stringify(list));
+    localStorage.setItem(ACTIVITY_STORE, JSON.stringify(activity));
   } catch (error) {
     /* storage is optional */
+  }
+}
+
+function loadSortMode() {
+  try {
+    const value = localStorage.getItem(SORT_STORE);
+    return value === 'active' || value === 'name' ? value : 'name';
+  } catch (error) {
+    return 'name';
   }
 }
 
@@ -47,7 +75,10 @@ export function ChatProvider({ children }) {
   const [connected, setConnected] = useState(false);
   const [myId, setMyId] = useState(null);
   const [myName, setMyName] = useState('jettyCat 用户');
-  const [conversations, setConversations] = useState(loadConversations);
+  const [conversations, setConversations] = useState([]);
+  const [activity, setActivity] = useState(loadActivity);
+  const [sortMode, setSortMode] = useState(loadSortMode);
+  const [contactsReady, setContactsReady] = useState(false);
   const [notices, setNotices] = useState([]);
   const [unread, setUnread] = useState({});
   const [lastMessages, setLastMessages] = useState({});
@@ -105,9 +136,126 @@ export function ChatProvider({ children }) {
     });
   }, []);
 
-  const recordLastMessage = useCallback((kind, id, content) => {
-    setLastMessages((prev) => ({ ...prev, [`${kind}:${id}`]: content }));
+  const touchActivity = useCallback((kind, id, source, ts) => {
+    const key = `${kind}:${id}`;
+    const time = Number(ts) || Date.now();
+    setActivity((prev) => {
+      const sources = prev[key] ? { ...prev[key] } : {};
+      if (sources[source] && Number(sources[source]) >= time) return prev;
+      sources[source] = time;
+      const next = { ...prev, [key]: sources };
+      saveActivity(next);
+      return next;
+    });
   }, []);
+
+  const recordLastMessage = useCallback((kind, id, content, ts) => {
+    setLastMessages((prev) => ({ ...prev, [`${kind}:${id}`]: content }));
+    touchActivity(kind, id, 'message', ts);
+  }, [touchActivity]);
+
+  const changeSortMode = useCallback((mode) => {
+    const next = mode === 'active' ? 'active' : 'name';
+    setSortMode(next);
+    try {
+      localStorage.setItem(SORT_STORE, next);
+    } catch (error) {
+      /* storage is optional */
+    }
+  }, []);
+
+  // 从服务端拉取好友/群聊列表并**整体替换**会话列表。
+  // 本地以服务端为准: 服务端未返回的关系不会出现在列表中。
+  const refreshLists = useCallback(async () => {
+    let friends = [];
+    let groups = [];
+    try {
+      const [friendResp, groupResp] = await Promise.all([
+        fetch('/api/chat/friend_list', { credentials: 'include' }),
+        fetch('/api/chat/group_list', { credentials: 'include' }),
+      ]);
+      const friendData = await friendResp.json();
+      const groupData = await groupResp.json();
+      if (friendData && friendData.status === 'success' && Array.isArray(friendData.friends)) {
+        friends = friendData.friends;
+      }
+      if (groupData && groupData.status === 'success' && Array.isArray(groupData.groups)) {
+        groups = groupData.groups;
+      }
+    } catch (error) {
+      /* network errors keep the current list intact */
+      return;
+    }
+
+    const conversations = [];
+    for (const friend of friends) {
+      const id = Number(friend.friend_id);
+      if (!id) continue;
+      conversations.push({
+        kind: 'user',
+        id,
+        name: friend.nickname || friend.username || `用户 ${id}`,
+        avatarUrl: friend.avatar_url || '',
+      });
+    }
+    for (const group of groups) {
+      const id = Number(group.group_id);
+      if (!id) continue;
+      conversations.push({
+        kind: 'group',
+        id,
+        name: group.group_name || `群组 ${id}`,
+        identity: group.identity || 'member',
+        joinTime: Number(group.join_time) || 0,
+      });
+    }
+
+    // 首次发现的关系(好友/群聊)记录一次活跃, 作为"最新添加/加入"的依据
+    setActivity((prev) => {
+      let next = prev;
+      const now = Date.now();
+      for (const item of conversations) {
+        const key = `${item.kind}:${item.id}`;
+        const source = item.kind === 'group' ? 'group_joined' : 'friend_added';
+        if (prev[key] && prev[key][source]) continue;
+        const joinedAt = item.kind === 'group' && item.joinTime ? item.joinTime * 1000 : now;
+        next = { ...next, [key]: { ...(prev[key] || {}), [source]: joinedAt } };
+      }
+      if (next !== prev) saveActivity(next);
+      return next;
+    });
+
+    setConversations(conversations);
+    setContactsReady(true);
+  }, []);
+
+  // 调用服务端关系 API 的通用封装, 成功后自动刷新列表
+  const apiMutation = useCallback(
+    async (path, params) => {
+      let data;
+      try {
+        const response = await fetch(`${path}?${new URLSearchParams(params)}`, { credentials: 'include' });
+        data = await response.json();
+      } catch (error) {
+        return { status: 'error', error: '网络请求失败, 请稍后重试' };
+      }
+      if (data && data.status === 'success') {
+        await refreshLists();
+      }
+      return data || { status: 'error', error: '服务端响应异常' };
+    },
+    [refreshLists]
+  );
+
+  const addFriend = useCallback((friendId) => apiMutation('/api/chat/add_friend', { friendId }), [apiMutation]);
+  const removeFriend = useCallback((friendId) => apiMutation('/api/chat/remove_friend', { friendId }), [apiMutation]);
+  const addGroup = useCallback((groupId) => apiMutation('/api/chat/add_group', { groupId }), [apiMutation]);
+  const removeGroup = useCallback((groupId) => apiMutation('/api/chat/remove_group', { groupId }), [apiMutation]);
+
+  // 连接成功后拉取一次好友/群聊列表
+  useEffect(() => {
+    if (myId != null) refreshLists();
+  }, [myId, refreshLists]);
 
   const flushQueue = useCallback(() => {
     if (flushingRef.current) return;
@@ -200,16 +348,8 @@ export function ChatProvider({ children }) {
       const inner = parseContent(message.content);
       const sender = Number(inner && inner.from !== undefined ? inner.from : message.from);
       const receiver = Number(message.to);
-      setConversations((prev) => {
-        if (sender > 0 && !prev.some((item) => item.kind === 'user' && Number(item.id) === sender)) {
-          const next = [{ kind: 'user', id: sender }, ...prev];
-          saveConversations(next);
-          return next;
-        }
-        return prev;
-      });
       notify({ type: 'private_message', message, inner, sender, receiver });
-      recordLastMessage('user', sender, (inner && inner.content) || '');
+      recordLastMessage('user', sender, (inner && inner.content) || '', inner && inner.date);
       if (activeKeyRef.current !== `user:${sender}`) {
         pushMessageNotice(sender, (inner && inner.content) || '你有一条新的私聊消息');
       }
@@ -223,13 +363,16 @@ export function ChatProvider({ children }) {
     const ws = new WebSocket(protocol + window.location.host + WS_PATH);
     wsRef.current = ws;
     ws.onopen = () => {
-      if (!aliveRef.current) return;
+      if (!aliveRef.current || wsRef.current !== ws) return;
       setConnected(true);
       reconnectRef.current = 0;
       notify({ type: 'connection', connected: true });
       flushQueue();
     };
-    ws.onmessage = (event) => handleMessage(event.data);
+    ws.onmessage = (event) => {
+      if (wsRef.current !== ws) return;
+      handleMessage(event.data);
+    };
     ws.onerror = () => {
       try {
         ws.close();
@@ -238,6 +381,8 @@ export function ChatProvider({ children }) {
       }
     };
     ws.onclose = (event) => {
+      if (wsRef.current !== ws) return;
+      wsRef.current = null;
       if (!aliveRef.current) return;
       setConnected(false);
       notify({ type: 'connection', connected: false });
@@ -284,15 +429,6 @@ export function ChatProvider({ children }) {
     [flushQueue]
   );
 
-  const addConversation = useCallback((kind, id) => {
-    setConversations((prev) => {
-      if (prev.some((item) => item.kind === kind && Number(item.id) === Number(id))) return prev;
-      const next = [...prev, { kind, id: Number(id) }];
-      saveConversations(next);
-      return next;
-    });
-  }, []);
-
   const setActiveKey = useCallback(
     (key) => {
       activeKeyRef.current = key;
@@ -318,6 +454,9 @@ export function ChatProvider({ children }) {
     myId,
     myName,
     conversations,
+    activity,
+    sortMode,
+    contactsReady,
     notices,
     unread,
     lastMessages,
@@ -325,10 +464,16 @@ export function ChatProvider({ children }) {
     dismissNotice,
     subscribe,
     sendMessage,
-    addConversation,
+    addFriend,
+    removeFriend,
+    addGroup,
+    removeGroup,
     setActiveKey,
     clearUnread,
     recordLastMessage,
+    touchActivity,
+    changeSortMode,
+    refreshLists,
     connect,
     disconnect,
   };

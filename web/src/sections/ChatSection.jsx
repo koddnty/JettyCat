@@ -20,32 +20,44 @@ export default function ChatSection({ active }) {
   const loadingRef = useRef(false);
   const scrollerRef = useRef(null);
   const scrollAnchorRef = useRef(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+
+  // 用基本类型(而非 active 对象引用)作为副作用依赖, 避免父组件每次重渲染
+  // 都导致历史记录重新拉取。fetch_* 接口只在切换会话(activeKey 变化)时调用。
+  const activeKey = active ? keyOf(active.kind, active.id) : null;
 
   const nextMessageId = useCallback((prefix) => {
     messageIdRef.current += 1;
     return `${prefix}-${messageIdRef.current}`;
   }, []);
 
-  const resetStreams = useCallback(() => {
+  const resetStreams = useCallback((kind) => {
+    const isGroup = kind === 'group';
     streamsRef.current = {
       theirs: { offset: 0, done: false, queue: [] },
-      mine: { offset: 0, done: false, queue: [] },
+      mine: isGroup ? { offset: 0, done: true, queue: [] } : { offset: 0, done: false, queue: [] },
     };
     loadingRef.current = false;
   }, []);
 
   const fetchPage = useCallback(
     async (stream) => {
+      const conv = activeRef.current;
+      if (!conv || (conv.kind !== 'user' && conv.kind !== 'group') || myId === null) return [];
       const isTheirs = stream === 'theirs';
       const params = new URLSearchParams();
-      if (isTheirs) {
-        params.set('senderId', String(active.id));
+      if (conv.kind === 'group') {
+        params.set('groupId', String(conv.id));
+      } else if (isTheirs) {
+        params.set('senderId', String(conv.id));
       } else {
         params.set('senderId', String(myId));
-        params.set('receiverId', String(active.id));
+        params.set('receiverId', String(conv.id));
       }
       params.set('offset', String(streamsRef.current[stream].offset));
-      const response = await fetch(`/api/chat/fetch_user_message?${params}`, { credentials: 'include' });
+      const endpoint = conv.kind === 'group' ? '/api/chat/fetch_group_message' : '/api/chat/fetch_user_message';
+      const response = await fetch(`${endpoint}?${params}`, { credentials: 'include' });
       const page = await response.json();
       if (page.status !== 'success') throw new Error(page.error || 'history request failed');
       const items = Array.isArray(page.messages) ? page.messages : [];
@@ -53,7 +65,7 @@ export default function ChatSection({ active }) {
       if (items.length < HISTORY_PAGE) streamsRef.current[stream].done = true;
       return items;
     },
-    [active, myId]
+    [myId]
   );
 
   // Fill a stream's queue from its next page when empty; pages are appended
@@ -70,7 +82,8 @@ export default function ChatSection({ active }) {
 
   // Merge the two queues' newest-available items into a newest-first batch.
   // When a queue is drained it is refilled immediately so the two streams
-  // stay interleaved chronologically without disorder.
+  // stay interleaved chronologically without disorder. 群聊只有单一消息流
+  // (theirs), mine 流为空所以直接退化为顺序拉取。
   const nextMergedBatch = useCallback(
     async (count) => {
       const result = [];
@@ -98,12 +111,12 @@ export default function ChatSection({ active }) {
 
   const loadHistory = useCallback(
     async (conversation) => {
-      if (!conversation || conversation.kind !== 'user' || myId === null) return;
+      if (!conversation || (conversation.kind !== 'user' && conversation.kind !== 'group') || myId === null) return;
       const key = keyOf(conversation.kind, conversation.id);
       const requestId = ++requestIdRef.current;
       const pendingLive = (messagesMapRef.current.get(key) || []).filter((m) => m.origin !== 'history');
       resetList([]);
-      resetStreams();
+      resetStreams(conversation.kind);
       loadingRef.current = true;
       try {
         const batch = await nextMergedBatch(10);
@@ -117,7 +130,10 @@ export default function ChatSection({ active }) {
             content: item.content == null ? '' : String(item.content),
           }))
           .sort(compareMessages);
-        const list = [...entries, ...pendingLive].sort(compareMessages);
+        // 历史记录与已存在(乐观发送/实时)的消息去重, 避免同一消息显示两次
+        const seen = new Set(pendingLive.map((m) => `${m.date}|${m.from}|${m.content}`));
+        const fresh = entries.filter((m) => !seen.has(`${m.date}|${m.from}|${m.content}`));
+        const list = [...fresh, ...pendingLive].sort(compareMessages);
         messagesMapRef.current.set(key, list);
         resetList(toChatUiMessages(list, myId));
       } catch (error) {
@@ -132,8 +148,9 @@ export default function ChatSection({ active }) {
 
   const loadOlder = useCallback(async () => {
     if (loadingRef.current) return;
-    if (!active || active.kind !== 'user' || myId === null) return;
-    const key = keyOf(active.kind, active.id);
+    const conv = activeRef.current;
+    if (!conv || (conv.kind !== 'user' && conv.kind !== 'group') || myId === null) return;
+    const key = keyOf(conv.kind, conv.id);
     loadingRef.current = true;
     try {
       const batch = await nextMergedBatch(10);
@@ -169,7 +186,7 @@ export default function ChatSection({ active }) {
     } finally {
       loadingRef.current = false;
     }
-  }, [active, myId, nextMessageId, prependMsgs, showNotice, nextMergedBatch]);
+  }, [myId, nextMessageId, prependMsgs, showNotice, nextMergedBatch]);
 
   // After new (older) messages are committed to the DOM, restore the scroll
   // offset so the previously visible messages stay in place.
@@ -183,23 +200,27 @@ export default function ChatSection({ active }) {
     if (target > 0) scroller.scrollTop = target;
   });
 
+  // 仅当会话切换(activeKey 变化)时拉取一次历史消息; 发送/接收消息不再触发 fetch
   useEffect(() => {
-    setActiveKey(active ? keyOf(active.kind, active.id) : null);
-    if (active) {
-      loadHistory(active);
+    const conv = activeRef.current;
+    setActiveKey(activeKey);
+    if (conv) {
+      loadHistory(conv);
     } else {
       ++requestIdRef.current;
       messagesMapRef.current.clear();
       resetList([]);
     }
-  }, [active, loadHistory, resetList, setActiveKey]);
+  }, [activeKey, loadHistory, resetList, setActiveKey]);
 
   useEffect(() => {
     return subscribe(({ type, inner, sender, receiver }) => {
-      if (type !== 'private_message' || !active) return;
-      if (Number(sender) !== Number(active.id) && Number(receiver) !== Number(active.id)) return;
-      if (Number(sender) !== Number(active.id)) return;
-      const key = keyOf(active.kind, active.id);
+      if (type !== 'private_message') return;
+      const conv = activeRef.current;
+      if (!conv) return;
+      if (Number(sender) !== Number(conv.id) && Number(receiver) !== Number(conv.id)) return;
+      if (Number(sender) !== Number(conv.id)) return;
+      const key = keyOf(conv.kind, conv.id);
       const list = messagesMapRef.current.get(key) || [];
       const entry = {
         id: nextMessageId('live'),
@@ -214,7 +235,7 @@ export default function ChatSection({ active }) {
       const prevDate = list.length > 1 ? list[list.length - 2].date : 0;
       appendMsg(toChatUiMessage(entry, myId, prevDate));
     });
-  }, [subscribe, active, myId, appendMsg, nextMessageId]);
+  }, [subscribe, myId, appendMsg, nextMessageId]);
 
   useEffect(() => {
     return () => clearTimeout(typingTimerRef.current);
@@ -222,25 +243,26 @@ export default function ChatSection({ active }) {
 
   const handleSend = useCallback(
     (type, val) => {
-      if (type === 'text' && val.trim() && active) {
+      const conv = activeRef.current;
+      if (type === 'text' && val.trim() && conv) {
         const content = val.trim();
         const now = Math.floor(Date.now() / 1000);
         const entry = { id: nextMessageId('local'), origin: 'local', date: now, from: myId, content };
-        const key = keyOf(active.kind, active.id);
+        const key = keyOf(conv.kind, conv.id);
         const list = messagesMapRef.current.get(key) || [];
         list.push(entry);
         list.sort(compareMessages);
         messagesMapRef.current.set(key, list);
         const prevDate = list.length > 1 ? list[list.length - 2].date : 0;
         appendMsg(toChatUiMessage(entry, myId, prevDate));
-        sendMessage(active.id, content);
-        recordLastMessage('user', active.id, content);
+        sendMessage(conv.id, content);
+        recordLastMessage(conv.kind, conv.id, content, now);
         setTyping(true);
         clearTimeout(typingTimerRef.current);
         typingTimerRef.current = setTimeout(() => setTyping(false), 1400);
       }
     },
-    [active, myId, appendMsg, nextMessageId, recordLastMessage, sendMessage]
+    [myId, appendMsg, nextMessageId, recordLastMessage, sendMessage]
   );
 
   const quickReplies = useMemo(
@@ -288,7 +310,7 @@ export default function ChatSection({ active }) {
     );
   }
 
-  const title = active.kind === 'group' ? `群组 ${active.id}` : `用户 ${active.id}`;
+  const title = active.name || (active.kind === 'group' ? `群组 ${active.id}` : `用户 ${active.id}`);
 
   return (
     <div className="chat-module">
