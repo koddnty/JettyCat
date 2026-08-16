@@ -1,7 +1,28 @@
 #include "chatter.hpp"
 #include "login/tools.hpp"
+#include "dao/DbProvider.hpp"
+#include "dao/FriendDao.hpp"
+#include "service/FriendService.hpp"
+#include "http/Response.hpp"
 
 namespace chatter {
+
+// 把统一响应体写入一个 HttpSession（协议层渲染，见 co_RemoveFriend 用法）
+static void sendResp(const http::HttpSession::ptr& session, const resp::HttpResponse& response) {
+    auto http_resp = session->getResponse();
+    http_resp->appendHeader("Content-Type", "application/json");
+    http_resp->setBody(response.dump());
+    http_resp->setStatus(static_cast<http::StatusCode>(response.getCode()));
+}
+
+// 好友相关业务服务：由真实数据库 provider 装配。
+// 依赖在这里一次性注入，co_RemoveFriend 只做协议层的事。
+static service::FriendService& getFriendService() {
+    static service::FriendService instance{
+        std::make_shared<dao::FriendDao>(std::make_shared<dao::ProductDbProvider>())
+    };
+    return instance;
+}
 
 static Logger::ptr g_logger = M_SYLAR_LOG_NAME("jettyCat");
 int WsMessage::load(const nlohmann::json& json) {
@@ -202,11 +223,11 @@ Task<void> co_FetchUserMessage(http::HttpSession::ptr session) {
 
     // 从数据库拉取消息 (sender_id -> receiver_id)
     JettyCat::chat::MessageList message_list;
-    JettyCat::chat::State state = co_await JettyCat::chat::fetchFromInbox(sender_id, receiver_id, offset, message_list);
+    JettyCat::chat::DBState state = co_await JettyCat::chat::fetchFromInbox(sender_id, receiver_id, offset, message_list);
 
     // 构建响应
     nlohmann::json resp_json;
-    if (state == JettyCat::chat::State::SUCCESS) {
+    if (state == JettyCat::chat::DBState::SUCCESS) {
         resp_json["status"] = "success";
         nlohmann::json messages = nlohmann::json::array();
         for (const auto& msg : message_list) {
@@ -215,7 +236,7 @@ Task<void> co_FetchUserMessage(http::HttpSession::ptr session) {
         resp_json["messages"] = messages;
         resp_json["count"] = message_list.size();
         resp->setStatus(http::StatusCode::ok);
-    } else if (state == JettyCat::chat::State::TIMEOUT) {
+    } else if (state == JettyCat::chat::DBState::TIMEOUT) {
         M_SYLAR_LOG_ERROR(g_logger) << "co_FetchUserMessage, fetchFromInbox timeout, "
                                     << "sender_id=" << sender_id << ", receiver_id=" << receiver_id
                                     << ", offset=" << offset;
@@ -307,11 +328,11 @@ Task<void> co_FetchGroupMessage(http::HttpSession::ptr session) {
 
     // 从数据库拉取消息
     JettyCat::chat::MessageList message_list;
-    JettyCat::chat::State state = co_await JettyCat::chat::fetchFromGroup(group_id, offset, message_list);
+    JettyCat::chat::DBState state = co_await JettyCat::chat::fetchFromGroup(group_id, offset, message_list);
 
     // 构建响应
     nlohmann::json resp_json;
-    if (state == JettyCat::chat::State::SUCCESS) {
+    if (state == JettyCat::chat::DBState::SUCCESS) {
         resp_json["status"] = "success";
         nlohmann::json messages = nlohmann::json::array();
         for (const auto& msg : message_list) {
@@ -320,7 +341,7 @@ Task<void> co_FetchGroupMessage(http::HttpSession::ptr session) {
         resp_json["messages"] = messages;
         resp_json["count"] = message_list.size();
         resp->setStatus(http::StatusCode::ok);
-    } else if (state == JettyCat::chat::State::TIMEOUT) {
+    } else if (state == JettyCat::chat::DBState::TIMEOUT) {
         M_SYLAR_LOG_ERROR(g_logger) << "co_FetchGroupMessage, fetchFromGroup timeout, "
                                     << "group_id=" << group_id << ", offset=" << offset;
         resp_json["status"] = "error";
@@ -769,7 +790,7 @@ Task<void> co_RemoveFriend(http::HttpSession::ptr session) {
         co_return;
     }
 
-    // JWT身份验证
+    // 身份验证
     std::string jwt = req->getCookie("jwttoken");
     if (jwt.empty() || JWT::verifyJWT(jwt) != JWT::State::SUCCESS) {
         M_SYLAR_LOG_WARN(g_logger) << "co_RemoveFriend, unauthorized: invalid or missing JWT token";
@@ -783,7 +804,6 @@ Task<void> co_RemoveFriend(http::HttpSession::ptr session) {
         co_return;
     }
 
-    // 从JWT中解析当前用户身份
     JettyCat::chat::userId user_id = JWT::parserPayload(jwt).user_id;
     if (user_id <= 0) {
         M_SYLAR_LOG_WARN(g_logger) << "co_RemoveFriend, invalid JWT payload, user_id=" << user_id;
@@ -797,89 +817,23 @@ Task<void> co_RemoveFriend(http::HttpSession::ptr session) {
         co_return;
     }
 
-    // 获取请求参数 (body 中的 JSON)
+    // 参数获取
     nlohmann::json body;
     try {
         body = nlohmann::json::parse(req->getBody());
-    } catch (const std::exception& e) {
+    } catch (const std::exception&) {
         body = nlohmann::json::object();
     }
     std::string friend_id_str = body.value("friendId", "");
-    if (friend_id_str.empty()) {
-        M_SYLAR_LOG_WARN(g_logger) << "co_RemoveFriend, missing required param: friendId";
-        nlohmann::json j;
-        j["status"] = "failed";
-        j["error"] = "BAD_REQUEST: Missing or invalid 'friendId'";
-        resp->appendHeader("Content-Type", "application/json");
-        resp->setBody(j.dump());
-        resp->setStatus(http::StatusCode::bad_request);
-        co_await session->co_sendResp();
-        co_return;
-    }
 
-    JettyCat::chat::userId friend_id = 0;
-    bool parse_error = false;
-    try {
-        friend_id = std::stoi(friend_id_str);
-    } catch (const std::exception& e) {
-        parse_error = true;
-    }
+    // 执行
+    const auto result = co_await getFriendService().removeFriend(user_id, friend_id_str);
 
-    if (parse_error) {
-        M_SYLAR_LOG_WARN(g_logger) << "co_RemoveFriend, invalid friendId: " << friend_id_str;
-        nlohmann::json j;
-        j["status"] = "failed";
-        j["error"] = "BAD_REQUEST: Invalid 'friendId'";
-        resp->appendHeader("Content-Type", "application/json");
-        resp->setBody(j.dump());
-        resp->setStatus(http::StatusCode::bad_request);
-        co_await session->co_sendResp();
-        co_return;
+    // 响应构建
+    if (!result.isOk()) {
+        M_SYLAR_LOG_WARN(g_logger) << "co_RemoveFriend, business failed: " << result.getMsg();
     }
-
-    if (friend_id <= 0 || friend_id == user_id) {
-        M_SYLAR_LOG_WARN(g_logger) << "co_RemoveFriend, invalid friendId: " << friend_id_str
-                                   << ", user_id=" << user_id;
-        nlohmann::json j;
-        j["status"] = "failed";
-        j["error"] = "BAD_REQUEST: Invalid 'friendId'";
-        resp->appendHeader("Content-Type", "application/json");
-        resp->setBody(j.dump());
-        resp->setStatus(http::StatusCode::bad_request);
-        co_await session->co_sendResp();
-        co_return;
-    }
-
-    // 排序以满足 CHECK 约束, 与写入保持一致
-    JettyCat::chat::userId min_id = std::min(user_id, friend_id);
-    JettyCat::chat::userId max_id = std::max(user_id, friend_id);
-
-    // 标记删除: status 0 = 拉黑/删除
-    const std::string sql =
-        "update user_friend set status = 0 "
-        "where user_id = ? and friend_id = ?";
-    const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
-    MySQLStmt stmt {conn_wrap};
-    IOState state = IOState::TIMEOUT;
-    int count = 3;
-    while (state == IOState::TIMEOUT && count--) {
-        state = co_await stmt.co_execute(sql, min_id, max_id);
-    }
-
-    nlohmann::json resp_json;
-    if (state == IOState::SUCCESS) {
-        resp_json["status"] = "success";
-        resp_json["message"] = "Friend removed";
-        resp->setStatus(http::StatusCode::ok);
-    } else {
-        M_SYLAR_LOG_ERROR(g_logger) << "co_RemoveFriend, execute failed, state=" << (int)state
-                                    << ", user_id=" << min_id << ", friend_id=" << max_id;
-        resp_json["status"] = "error";
-        resp_json["error"] = state == IOState::TIMEOUT ? "Database query timeout" : "Database query failed";
-        resp->setStatus(http::StatusCode::internal_server_error);
-    }
-    resp->appendHeader("Content-Type", "application/json");
-    resp->setBody(resp_json.dump());
+    sendResp(session, result);
     co_await session->co_sendResp();
     co_return;
 }

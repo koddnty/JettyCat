@@ -84,7 +84,7 @@ using MessageList = std::list<Message>;
 
 
 // 数据库访问状态定义
-enum class State {
+enum class DBState {
     SUCCESS,
     TIMEOUT,
     FAILED
@@ -96,7 +96,7 @@ enum class State {
  * @param message_list 发送的一个列表数据
  * @return 发送状态
  */
-m_sylar::Task<State>sendToUser(const userId& user_id, const MessageList& message_list);                  // 发送到用户收件箱
+m_sylar::Task<DBState>sendToUser(const userId& user_id, const MessageList& message_list);                  // 发送到用户收件箱
 
 /**
  *  @brief 将消息存储到群发件箱,群组成员均从此接受消息
@@ -104,7 +104,7 @@ m_sylar::Task<State>sendToUser(const userId& user_id, const MessageList& message
  * @param message_list 消息列表
  * @return 发送状态
  */
-m_sylar::Task<State>sendToGroup(const groupId& group_id, const MessageList& message_list);               // 发送到群聊发件箱,等待其他用户拉取
+m_sylar::Task<DBState>sendToGroup(const groupId& group_id, const MessageList& message_list);               // 发送到群聊发件箱,等待其他用户拉取
 
 /**
  * @brief 从目标群收件箱接受群消息, 返回10条消息,(返回的消息条数)通过配置文件配置
@@ -113,7 +113,7 @@ m_sylar::Task<State>sendToGroup(const groupId& group_id, const MessageList& mess
  * @param message_list 接受到的消息列表
  * @return 接受状态
  */
-m_sylar::Task<State>fetchFromGroup(const groupId& group_id, size_t offset, MessageList& message_list);                  // 从群聊接受消息
+m_sylar::Task<DBState>fetchFromGroup(const groupId& group_id, size_t offset, MessageList& message_list);                  // 从群聊接受消息
 
 /**
  * @brief 从当前用户收件箱拉取消息,返回10条消息,(返回的消息条数)通过配置文件配置
@@ -123,7 +123,7 @@ m_sylar::Task<State>fetchFromGroup(const groupId& group_id, size_t offset, Messa
  * @param message_list 接受到的消息列表
  * @return
  */
-m_sylar::Task<State>fetchFromInbox(const userId& sender_id, const userId& receiver_id, size_t offset, MessageList& message_list);            // 从收件箱接受消息
+m_sylar::Task<DBState>fetchFromInbox(const userId& sender_id, const userId& receiver_id, size_t offset, MessageList& message_list);            // 从收件箱接受消息
 
 };
 

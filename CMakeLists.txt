@@ -41,7 +41,9 @@ target_include_directories(jtcat PUBLIC
     /usr/local/include/sylar
 )
 
-add_executable(jettyCat code/gate.cc)
+add_executable(jettyCat code/gate.cc
+        code/dao/FriendDao.cc
+)
 add_dependencies(jettyCat jtcat)
 target_link_libraries(jettyCat jtcat sylar)
 

@@ -182,8 +182,8 @@ static m_sylar::Task<void> handlePrivateMessage(std::shared_ptr<ChatHandler::WsS
     msg_list.push_back(single_msg);
 
     // 数据库持久化
-    JettyCat::chat::State db_state = co_await sendToUser(receiver_id, msg_list);
-    if (db_state != JettyCat::chat::State::SUCCESS) {
+    JettyCat::chat::DBState db_state = co_await sendToUser(receiver_id, msg_list);
+    if (db_state != JettyCat::chat::DBState::SUCCESS) {
         M_SYLAR_LOG_ERROR(g_logger) << "handlePrivateMessage, failed to persist message to db";
         chatter::WsMessage err_msg;
         err_msg.setStatusCode(http::StatusCode::internal_server_error, "Failed to persist message")

@@ -71,7 +71,7 @@ int Message::load(const std::string& raw_json) {
 }
 
 
-m_sylar::Task<State> sendToUser(const userId& user_id, const MessageList& message_list) {
+m_sylar::Task<DBState> sendToUser(const userId& user_id, const MessageList& message_list) {
     const std::string sql = "insert into user_message (sender_id, receiver_id, content, extra) values (?, ?, ?, ?)";
     const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
     MySQLStmt stmt {conn_wrap};
@@ -88,18 +88,18 @@ m_sylar::Task<State> sendToUser(const userId& user_id, const MessageList& messag
                 continue;
             case IOState::TIMEOUT:
                 M_SYLAR_LOG_ERROR(g_logger) << "execute sql time out: " << sql;
-                co_return State::TIMEOUT;
+                co_return DBState::TIMEOUT;
             default:
                 M_SYLAR_LOG_ERROR(g_logger) << "failed to execute sql: " << sql;
-                co_return State::FAILED;
+                co_return DBState::FAILED;
         }
     }
 
-    co_return State::SUCCESS;
+    co_return DBState::SUCCESS;
 }
 
 
-m_sylar::Task<State> sendToGroup(const groupId& group_id, const MessageList& message_list) {
+m_sylar::Task<DBState> sendToGroup(const groupId& group_id, const MessageList& message_list) {
     const std::string sql = "insert into group_message (user_id, group_id, content, extra) values (?, ?, ?, ?)";
     const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
     MySQLStmt stmt {conn_wrap};
@@ -116,18 +116,18 @@ m_sylar::Task<State> sendToGroup(const groupId& group_id, const MessageList& mes
             continue;
         case IOState::TIMEOUT:
             M_SYLAR_LOG_ERROR(g_logger) << "execute sql time out: " << sql;
-            co_return State::TIMEOUT;
+            co_return DBState::TIMEOUT;
         default:
             M_SYLAR_LOG_ERROR(g_logger) << "failed to execute sql: " << sql;
-            co_return State::FAILED;
+            co_return DBState::FAILED;
         }
     }
 
-    co_return State::SUCCESS;
+    co_return DBState::SUCCESS;
 }
 
 
-m_sylar::Task<State> fetchFromGroup(const groupId& group_id, size_t offset, MessageList& message_list) {
+m_sylar::Task<DBState> fetchFromGroup(const groupId& group_id, size_t offset, MessageList& message_list) {
     const std::string sql = "select user_id, msg_type, content, UNIX_TIMESTAMP(send_time) from group_message where group_message.group_id = ? order by group_message.send_time desc limit 10 offset ?";
     const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
     MySQLStmt<int, STMT_Text<36>, STMT_Text<2048>, uint64_t> stmt {conn_wrap};
@@ -144,20 +144,20 @@ m_sylar::Task<State> fetchFromGroup(const groupId& group_id, size_t offset, Mess
         break;
     case IOState::TIMEOUT:
         M_SYLAR_LOG_ERROR(g_logger) << "execute sql time out: " << sql;
-        co_return State::TIMEOUT;
+        co_return DBState::TIMEOUT;
     default:
         M_SYLAR_LOG_ERROR(g_logger) << "failed to execute sql: " << sql;
-        co_return State::FAILED;
+        co_return DBState::FAILED;
     }
 
     // 结果获取
     if(IOState::SUCCESS != co_await stmt.co_storeAll()) {
         M_SYLAR_LOG_ERROR(g_logger) << "failed to store all result: " << sql;
-        co_return State::FAILED;
+        co_return DBState::FAILED;
     }
     if (IOState::SUCCESS != co_await stmt.co_fetchAll()) {
         M_SYLAR_LOG_ERROR(g_logger) << "failed to fetch all results: " << sql;
-        co_return State::FAILED;
+        co_return DBState::FAILED;
     }
 
     // 结果写入
@@ -169,10 +169,10 @@ m_sylar::Task<State> fetchFromGroup(const groupId& group_id, size_t offset, Mess
             .setFrom(std::get<0>(it));
         message_list.push_back(message);
     }
-    co_return State::SUCCESS;
+    co_return DBState::SUCCESS;
 }
 
-m_sylar::Task<State> fetchFromInbox(const userId& sender_id, const userId& receiver_id, size_t offset, MessageList& message_list) {
+m_sylar::Task<DBState> fetchFromInbox(const userId& sender_id, const userId& receiver_id, size_t offset, MessageList& message_list) {
     const std::string sql = "select sender_id, msg_type, content, UNIX_TIMESTAMP(send_time) from user_message where user_message.sender_id = ? and user_message.receiver_id = ? order by user_message.send_time desc limit 10 offset ?";
     const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
     MySQLStmt<int, STMT_Text<36>, STMT_Text<2048>, uint64_t> stmt {conn_wrap};
@@ -189,20 +189,20 @@ m_sylar::Task<State> fetchFromInbox(const userId& sender_id, const userId& recei
         break;
     case IOState::TIMEOUT:
         M_SYLAR_LOG_ERROR(g_logger) << "execute sql time out: " << sql;
-        co_return State::TIMEOUT;
+        co_return DBState::TIMEOUT;
     default:
         M_SYLAR_LOG_ERROR(g_logger) << "failed to execute sql: " << sql;
-        co_return State::FAILED;
+        co_return DBState::FAILED;
     }
 
     // 结果获取
     if(IOState::SUCCESS != co_await stmt.co_storeAll()) {
         M_SYLAR_LOG_ERROR(g_logger) << "failed to store all result: " << sql;
-        co_return State::FAILED;
+        co_return DBState::FAILED;
     }
     if (IOState::SUCCESS != co_await stmt.co_fetchAll()) {
         M_SYLAR_LOG_ERROR(g_logger) << "failed to fetch all results: " << sql;
-        co_return State::FAILED;
+        co_return DBState::FAILED;
     }
 
     // 结果写入
@@ -214,6 +214,6 @@ m_sylar::Task<State> fetchFromInbox(const userId& sender_id, const userId& recei
             .setFrom(std::get<0>(it));
         message_list.push_back(message);
     }
-    co_return State::SUCCESS;
+    co_return DBState::SUCCESS;
 }
 };
