@@ -97,34 +97,43 @@ export function ChatProvider({ children }) {
     setNotices((prev) => prev.filter((n) => n.id !== id));
   }, []);
 
-  const pushMessageNotice = useCallback((sender, preview) => {
+  const pushMessageNotice = useCallback((kind, id, preview) => {
+    const chatKey = `${kind}:${id}`;
     setUnread((prev) => ({
       ...prev,
-      [`user:${sender}`]: (prev[`user:${sender}`] || 0) + 1,
+      [chatKey]: (prev[chatKey] || 0) + 1,
     }));
     setNotices((prev) => {
-      const existing = prev.find((n) => n.kind === 'message' && n.sender === sender);
+      const existing = prev.find((n) => n.kind === 'message' && n.chatKey === chatKey);
       if (existing) {
         const count = (existing.count || 1) + 1;
         return prev.map((n) =>
           n === existing
-            ? { ...n, count, title: '收到新消息', content: `来自同一用户的 ${count} 条新消息` }
+            ? { ...n, count, title: '收到新消息', content: `共 ${count} 条新消息` }
             : n
         );
       }
       return [
         ...prev,
-        { id: Date.now() + Math.random(), kind: 'message', sender, count: 1, title: '收到新消息', content: preview || '你有一条新的私聊消息' },
+        {
+          id: Date.now() + Math.random(),
+          kind: 'message',
+          chatKey,
+          sender: kind === 'group' ? '群聊' : id,
+          count: 1,
+          title: kind === 'group' ? '收到新群消息' : '收到新消息',
+          content: preview || '你有一条新消息',
+        },
       ];
     });
 
-    const timerId = noticeTimersRef.current.get(sender);
+    const timerId = noticeTimersRef.current.get(chatKey);
     if (timerId) clearTimeout(timerId);
     const timer = setTimeout(() => {
-      setNotices((prev) => prev.filter((n) => !(n.kind === 'message' && n.sender === sender)));
-      noticeTimersRef.current.delete(sender);
+      setNotices((prev) => prev.filter((n) => !(n.kind === 'message' && n.chatKey === chatKey)));
+      noticeTimersRef.current.delete(chatKey);
     }, 5000);
-    noticeTimersRef.current.set(sender, timer);
+    noticeTimersRef.current.set(chatKey, timer);
   }, []);
 
   const clearUnread = useCallback((key) => {
@@ -289,7 +298,7 @@ export function ChatProvider({ children }) {
       }
       const payload = JSON.stringify({
         code: 200,
-        type: 'private_message',
+        type: item.kind === 'group' ? 'group_message' : 'private_message',
         reason: 'ok',
         from: myIdRef.current,
         to: Number(item.to),
@@ -349,14 +358,27 @@ export function ChatProvider({ children }) {
         flushQueue();
         return;
       }
-      if (message.type !== 'private_message') return;
-      const inner = parseContent(message.content);
-      const sender = Number(inner && inner.from !== undefined ? inner.from : message.from);
-      const receiver = Number(message.to);
-      notify({ type: 'private_message', message, inner, sender, receiver });
-      recordLastMessage('user', sender, (inner && inner.content) || '', inner && inner.date);
-      if (activeKeyRef.current !== `user:${sender}`) {
-        pushMessageNotice(sender, (inner && inner.content) || '你有一条新的私聊消息');
+      if (message.type === 'private_message') {
+        const inner = parseContent(message.content);
+        const sender = Number(inner && inner.from !== undefined ? inner.from : message.from);
+        const receiver = Number(message.to);
+        notify({ type: 'private_message', message, inner, sender, receiver });
+        recordLastMessage('user', sender, (inner && inner.content) || '', inner && inner.date);
+        if (activeKeyRef.current !== `user:${sender}`) {
+          pushMessageNotice('user', sender, (inner && inner.content) || '你有一条新的私聊消息');
+        }
+        return;
+      }
+      if (message.type === 'group_message') {
+        const inner = parseContent(message.content);
+        const sender = Number(inner && inner.from !== undefined ? inner.from : message.from);
+        const groupId = Number(message.to);
+        notify({ type: 'group_message', message, inner, sender, groupId });
+        recordLastMessage('group', groupId, (inner && inner.content) || '', inner && inner.date);
+        if (activeKeyRef.current !== `group:${groupId}`) {
+          pushMessageNotice('group', groupId, (inner && inner.content) || '你有一条新的群聊消息');
+        }
+        return;
       }
     },
     [notify, pushMessageNotice, recordLastMessage]
@@ -424,10 +446,10 @@ export function ChatProvider({ children }) {
   }, []);
 
   const sendMessage = useCallback(
-    (to, content) => {
+    (to, content, kind = 'user') => {
       const text = String(content == null ? '' : content).trim();
       if (!text) return false;
-      sendQueueRef.current.push({ to: Number(to), content: text });
+      sendQueueRef.current.push({ to: Number(to), content: text, kind: kind === 'group' ? 'group' : 'user' });
       flushQueue();
       return true;
     },

@@ -40,6 +40,15 @@ public:
     [[nodiscard]] Task<JettyCat::chat::DBState> listGroups(JettyCat::chat::userId user_id,
                                                   nlohmann::json& groups_out) const;
 
+    /**
+     * @brief 查询用户加入的所有群 group_id 列表（轻量，仅 group_id）
+     *        用于 WS 上线时批量把用户登记进群聊在线集合
+     * @param group_ids_out 输出：群 id 列表
+     */
+    [[nodiscard]] Task<JettyCat::chat::DBState> listJoinedGroupIds(
+        JettyCat::chat::userId user_id,
+        std::vector<JettyCat::chat::groupId>& group_ids_out) const;
+
 private:
     std::shared_ptr<DbProvider> m_db;
 };

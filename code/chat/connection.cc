@@ -5,7 +5,10 @@
 #include "login/tools.hpp"
 #include "Message.hpp"
 #include "WsMessageRouter.hpp"
+#include "dao/DbProvider.hpp"
+#include "dao/GroupDao.hpp"
 #include <basic/config.h>
+#include <algorithm>
 
 
 static m_sylar::Logger::ptr g_logger = M_SYLAR_LOG_NAME("jettyCat");
@@ -30,6 +33,9 @@ public:
     RolePermissions::Role role{RolePermissions::UNKNOWN};
 
     int pongLoop{0}; // 记录pong次数,用于减少redis更新,通信次数
+
+    // 用户加入的群 id 列表（上线时从 MySQL 一次性加载，下线时用于 SREM 群集合）
+    std::vector<JettyCat::chat::groupId> joined_groups;
 };
 
 
@@ -115,6 +121,27 @@ user_name;
     if (rt) {
         co_await session->co_close(1011, "Internal Server Error");
         co_return;
+    }
+
+
+    // 加载用户加入的群列表，登记到群聊在线集合（供发群消息时广播，避免每次查 MySQL）
+    auto user_info = std::dynamic_pointer_cast<UserChatInfo>(session->getData());
+    if (user_info) {
+        chatter::dao::GroupDao group_dao(std::make_shared<chatter::dao::ProductDbProvider>());
+        JettyCat::chat::DBState gs = co_await group_dao.listJoinedGroupIds(user_id, user_info->joined_groups);
+        if (gs != JettyCat::chat::DBState::SUCCESS) {
+            M_SYLAR_LOG_ERROR(g_logger) << "co_onOpen, failed to load joined groups, user_id=" << user_id;
+        } else {
+            for (auto gid : user_info->joined_groups) {
+                std::string gcmd = "SADD " + chatWebsocket::formatGroupName(gid) + " " + std::to_string(sessionId);
+                m_sylar::RedisResp::ptr greply = co_await m_sylar::DB::Redis::getInstance()->executeQuery(gcmd);
+                if (greply->getState() != m_sylar::IOState::SUCCESS) {
+                    M_SYLAR_LOG_WARN(g_logger) << "co_onOpen, failed to SADD session to group set, group_id=" << gid;
+                }
+                std::string scmd = "EXPIRE " + chatWebsocket::formatGroupName(gid) + " 36000";
+                co_await m_sylar::DB::Redis::getInstance()->executeQuery(scmd);
+            }
+        }
     }
 
 
@@ -244,10 +271,148 @@ static m_sylar::Task<void> handlePrivateMessage(std::shared_ptr<ChatHandler::WsS
 }
 
 
+/**
+ * @brief 处理 group_message: 向群内所有在线成员广播群聊消息
+ *
+ * 流程: 校验发送者 → 解析内层Message → 校验发送者是群成员 → 数据库归档 → 广播给所有在线群成员
+ *
+ * 说明: WsMessage 的 to 字段复用承载 group_id（chat::groupId 与 userId 同为 int）。
+ */
+static m_sylar::Task<void> handleGroupMessage(std::shared_ptr<ChatHandler::WsSession> session,
+                                              const chatter::WsMessage& ws_msg) {
+    JettyCat::chat::userId user_id = std::dynamic_pointer_cast<UserChatInfo>(session->getData())->user_id;
+
+    // 字段提取与校验
+    JettyCat::chat::userId sender_id = ws_msg.getFrom();
+    JettyCat::chat::groupId group_id = ws_msg.getTo();   // to 复用承载群 id
+    std::string content = ws_msg.getContent();
+
+    if (sender_id != user_id) {
+        M_SYLAR_LOG_WARN(g_logger) << "handleGroupMessage, sender mismatch, sender=" << sender_id
+                                   << " user=" << user_id;
+        chatter::WsMessage err_msg;
+        err_msg.setStatusCode(http::StatusCode::bad_request, "Sender mismatch")
+               .setFrom(0).setTo(0);
+        websocket::Frame rt_frame;
+        rt_frame.setOpcode(websocket_flags::WS_OP_TEXT);
+        rt_frame.setTextPayload(err_msg.dump());
+        co_await session->co_sendFrame(rt_frame);
+        co_return;
+    }
+
+    // 从WsMessage.content反序列化业务消息
+    JettyCat::chat::Message single_msg;
+    if (single_msg.load(content) != 0) {
+        M_SYLAR_LOG_WARN(g_logger) << "handleGroupMessage, failed to parse business message content";
+        chatter::WsMessage err_msg;
+        err_msg.setStatusCode(http::StatusCode::bad_request, "Failed to parse message content")
+               .setFrom(0).setTo(0);
+        websocket::Frame rt_frame;
+        rt_frame.setOpcode(websocket_flags::WS_OP_TEXT);
+        rt_frame.setTextPayload(err_msg.dump());
+        co_await session->co_sendFrame(rt_frame);
+        co_return;
+    }
+    single_msg.setFrom(user_id); // 覆盖from为session用户id，确保安全
+    JettyCat::chat::MessageList msg_list;
+    msg_list.push_back(single_msg);
+
+    // 查询群聊在线 session（Redis，避免每次发消息查 MySQL）
+    size_t my_session_id = session->getSessionId();
+    std::string gcmd = "SMEMBERS " + chatWebsocket::formatGroupName(group_id);
+    RedisResp::ptr gresp = co_await DB::Redis::getInstance()->executeQuery(gcmd);
+    if (gresp->getState() != m_sylar::IOState::SUCCESS) {
+        M_SYLAR_LOG_ERROR(g_logger) << "handleGroupMessage, redis query group sessions failed, group_id=" << group_id;
+        chatter::WsMessage err_msg;
+        err_msg.setStatusCode(http::StatusCode::internal_server_error, "Failed to query group members")
+               .setFrom(0).setTo(0);
+        websocket::Frame rt_frame;
+        rt_frame.setOpcode(websocket_flags::WS_OP_TEXT);
+        rt_frame.setTextPayload(err_msg.dump());
+        co_await session->co_sendFrame(rt_frame);
+        co_return;
+    }
+    const std::vector<RedisResp::ptr>& online_sessions = gresp->asArray();
+
+    // 校验发送者自己的 session 在群集合中（等价于"是该群在线成员"）
+    bool sender_in_group = false;
+    for (auto& s : online_sessions) {
+        try {
+            if (static_cast<size_t>(std::stol(s->asString())) == my_session_id) {
+                sender_in_group = true;
+                break;
+            }
+        } catch (const std::exception&) {
+            continue;
+        }
+    }
+    if (!sender_in_group) {
+        M_SYLAR_LOG_WARN(g_logger) << "handleGroupMessage, sender not in group, sender=" << user_id
+                                   << " group_id=" << group_id;
+        chatter::WsMessage err_msg;
+        err_msg.setStatusCode(http::StatusCode::forbidden, "Not a member of this group")
+               .setFrom(0).setTo(0);
+        websocket::Frame rt_frame;
+        rt_frame.setOpcode(websocket_flags::WS_OP_TEXT);
+        rt_frame.setTextPayload(err_msg.dump());
+        co_await session->co_sendFrame(rt_frame);
+        co_return;
+    }
+
+    // 数据库归档
+    JettyCat::chat::DBState db_state = co_await JettyCat::chat::sendToGroup(group_id, msg_list);
+    if (db_state != JettyCat::chat::DBState::SUCCESS) {
+        M_SYLAR_LOG_ERROR(g_logger) << "handleGroupMessage, failed to persist message to db";
+        chatter::WsMessage err_msg;
+        err_msg.setStatusCode(http::StatusCode::internal_server_error, "Failed to persist message")
+               .setFrom(0).setTo(0);
+        websocket::Frame rt_frame;
+        rt_frame.setOpcode(websocket_flags::WS_OP_TEXT);
+        rt_frame.setTextPayload(err_msg.dump());
+        co_await session->co_sendFrame(rt_frame);
+        co_return;
+    }
+
+    // 构建转发消息
+    chatter::WsMessage fwd_msg;
+    fwd_msg.setStatusCode(http::StatusCode::ok)
+           .setType("group_message")
+           .setFrom(user_id)
+           .setTo(group_id)
+           .setContent(single_msg.dump());
+    std::string payload = fwd_msg.dump();
+
+    // 广播给所有在线群成员 session（跳过发送者自己的 session）
+    auto ws = websocket::WsServer::getInstance();
+    for (auto& s : online_sessions) {
+        size_t session_id = 0;
+        try {
+            session_id = static_cast<size_t>(std::stol(s->asString()));
+        } catch (const std::exception&) {
+            continue;
+        }
+        if (session_id == my_session_id) continue;
+
+        websocket::Frame frame;
+        frame.setOpcode(websocket_flags::WS_OP_TEXT);
+        frame.setTextPayload(payload);
+        auto target_session = ws->getSession(session_id);
+        int rt = co_await target_session->co_sendFrame(frame);
+        if (rt < 0) {
+            M_SYLAR_LOG_DEBUG(g_logger) << "handleGroupMessage, failed to send frame to session " << session_id;
+        }
+    }
+
+    M_SYLAR_LOG_DEBUG(g_logger) << "handleGroupMessage finished, group_id=" << group_id;
+    co_return;
+}
+
+
 // ========== 路由注册 ==========
 void ChatWebSocketServer::initWsRoutes() {
     auto& router = chatter::WsMessageRouter::getInstance();
     router.on("private_message", handlePrivateMessage);
+    router.on("group_message", handleGroupMessage);
     M_SYLAR_LOG_INFO(g_logger) << "WsMessage routes registered";
 }
 
@@ -350,6 +515,13 @@ m_sylar::Task<void> ChatHandler::co_onClose(std::shared_ptr<WsSession> session, 
             M_SYLAR_LOG_ERROR(g_logger) << "Failed to delete user-session mapping in Redis for user: " << user->
 user_name;
         }
+
+        // 从加入的群聊在线集合中移除该 session
+        for (auto gid : user->joined_groups) {
+            const std::string gcmd = "SREM " + chatWebsocket::formatGroupName(gid) + " " +
+                std::to_string(sessionId);
+            co_await m_sylar::DB::Redis::getInstance()->executeQuery(gcmd);
+        }
     }
 
 
@@ -371,6 +543,13 @@ m_sylar::Task<void> ChatHandler::co_onBadClose(std::shared_ptr<WsSession> sessio
     const RedisResp::ptr reply = co_await m_sylar::DB::Redis::getInstance()->executeQuery(cmd);
     if (reply->getState() != m_sylar::IOState::SUCCESS) {
         M_SYLAR_LOG_ERROR(g_logger) << "Failed to delete user-session mapping in Redis for user: " << user->user_name;
+    }
+
+    // 从加入的群聊在线集合中移除该 session
+    for (auto gid : user->joined_groups) {
+        const std::string gcmd = "SREM " + chatWebsocket::formatGroupName(gid) + " " +
+            std::to_string(sessionId);
+        co_await m_sylar::DB::Redis::getInstance()->executeQuery(gcmd);
     }
 
     co_return;

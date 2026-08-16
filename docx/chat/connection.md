@@ -61,6 +61,7 @@ WebSocket 握手成功后触发,流程:
 
 ```cpp
 router.on("private_message", handlePrivateMessage);
+router.on("group_message", handleGroupMessage);
 ```
 
 路由匹配优先级: `(type, from, to)` 精确匹配 > `(type, 0, 0)` 通配匹配。
@@ -107,6 +108,44 @@ router.on("private_message", handlePrivateMessage);
 
 **接收方收到的帧格式**: `code=200`, `type=private_message`, `from`=发送者 id, `to`=接收者 id, `content`=内层业务消息 JSON。
 
+### 群聊消息 (`group_message`)
+
+**客户端发送格式**（`to` 字段复用承载群 id，`groupId` 与 `userId` 同为 int）:
+
+``` json
+{
+    "code": 200,
+    "type": "group_message",
+    "from": 17,
+    "to": 3,
+    "reason": "ok",
+    "content": "{\"date\":0,\"from\":17,\"type\":\"TEXT\",\"content\":\"大家好\"}"
+}
+```
+
+**处理流程** (`handleGroupMessage`):
+
+1. **发送者校验** — `ws_msg.getFrom()` 必须等于会话 `user_id`,否则 `400 Sender mismatch`。
+2. **解析业务消息** — 从 `content` 反序列化 `Message`;失败 → `400 Failed to parse message content`。强制 `setFrom(user_id)` 防伪造。
+3. **查询在线 session** — `SMEMBERS {instanceId}_group_{groupId}` 从 Redis 直接拿在线 sessionId 列表（每 WS 连接上线时登记）。发送者自己的 session 不在集合中 → `403 Not a member of this group`。
+4. **数据库归档** — 调用 `sendToGroup(group_id, msg_list)` 写入 `group_message` 表。失败 → `500 Failed to persist message`。
+5. **广播** — 遍历在线 sessionId（跳过发送者自己的 session）,直接 `ws->getSession(sessionId)` 发帧。
+
+> 性能说明: 群消息全程 Redis + 单次归档写库，**零 MySQL 查询、零二级 Redis 查询**（集合直接存 sessionId，取出即发）。
+
+**群成员收到的帧格式**: `code=200`, `type=group_message`, `from`=发送者 id, `to`=群 id, `content`=内层业务消息 JSON。
+
+> 说明: 集合存 sessionId 而非 userId，天然支持多端——每端独立 SADD/SREM，一端下线不影响其他端；发送者其他端会收到该消息（多端同步）。
+
+### 群聊在线集合维护
+
+发送消息的高效性依赖 Redis 中的群聊在线集合 `{instanceId}_group_{groupId}`（SET，存在线 sessionId）,其生命周期:
+
+- **上线** (`co_onOpen`): 通过 `GroupDao::listJoinedGroupIds(user_id)` 一次查出用户加入的所有群 id（缓存到 `UserChatInfo::joined_groups`）,对每个群 `SADD {instanceId}_group_{groupId} {sessionId}` 并 `EXPIRE` 设过期。
+- **下线** (`co_onClose` / `co_onBadClose`): 遍历 `joined_groups`,对每个群 `SREM {instanceId}_group_{groupId} {sessionId}`。
+
+> 待办(问题 1): 用户在线期间新加入/退出的群不会实时同步该集合（加群后需重连才生效），需在 `GroupService::addGroup/removeGroup` 中同步 SADD/SREM。
+
 ### 二进制消息 (`co_onBinary`)
 
 二进制帧不受支持,收到后返回 `400 unsupported binary message` 错误帧。
@@ -138,6 +177,9 @@ router.on("private_message", handlePrivateMessage);
 | `SMEMBERS {instanceId}_user_{userId}` | 查找用户所有在线会话 |
 | `SREM {instanceId}_user_{userId} {sessionId}` | 移除会话(连接关闭) |
 | `EXPIRE {instanceId}_user_{userId} 36000` | 设置/刷新会话过期时间 |
+| `SADD {instanceId}_group_{groupId} {sessionId}` | 登记群聊在线 session(WS 上线时,每端独立) |
+| `SMEMBERS {instanceId}_group_{groupId}` | 查找群聊在线 sessionId 列表(发群消息广播用) |
+| `SREM {instanceId}_group_{groupId} {sessionId}` | 移除群聊在线 session(WS 下线时) |
 
 `{instanceId}` = `getInstanceId()`(服务器启动 epoch 时间戳),`{sessionId}` 由 sylar 框架为每个 WsSession 分配。
 
@@ -151,6 +193,7 @@ router.on("private_message", handlePrivateMessage);
 | `user_id` | `int` | 用户 id(数据库查询所得) |
 | `role` | `RolePermissions::Role` | 角色(USER / ADMIN) |
 | `pongLoop` | `int` | Pong 计数,用于控制 Redis 刷新频率 |
+| `joined_groups` | `std::vector<groupId>` | 用户加入的群 id 列表(上线加载,下线 SREM 群集合用) |
 
 ## 错误码汇总
 

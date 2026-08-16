@@ -118,4 +118,37 @@ Task<JettyCat::chat::DBState> GroupDao::listGroups(const JettyCat::chat::userId 
     co_return JettyCat::chat::DBState::SUCCESS;
 }
 
+
+Task<JettyCat::chat::DBState> GroupDao::listJoinedGroupIds(
+    const JettyCat::chat::userId user_id,
+    std::vector<JettyCat::chat::groupId>& group_ids_out) const {
+    const std::string sql = "select group_id from user_group where user_id = ?";
+
+    auto conn = m_db->borrowConn();
+    MySQLStmt<int> stmt {conn};
+
+    IOState state = IOState::TIMEOUT;
+    int count = 3;
+    while (state == IOState::TIMEOUT && count--) {
+        state = co_await stmt.co_execute(sql, user_id);
+    }
+    if (state != IOState::SUCCESS) {
+        co_return state == IOState::TIMEOUT ? JettyCat::chat::DBState::TIMEOUT
+                                            : JettyCat::chat::DBState::FAILED;
+    }
+    if (co_await stmt.co_storeAll() != IOState::SUCCESS) {
+        co_return JettyCat::chat::DBState::FAILED;
+    }
+    if (co_await stmt.co_fetchAll() != IOState::SUCCESS) {
+        co_return JettyCat::chat::DBState::FAILED;
+    }
+
+    std::vector<JettyCat::chat::groupId> group_ids;
+    for (auto result = stmt.getResult().getAll(); auto& it : result) {
+        group_ids.push_back(std::get<0>(it));
+    }
+    group_ids_out = std::move(group_ids);
+    co_return JettyCat::chat::DBState::SUCCESS;
+}
+
 } // namespace chatter::dao
