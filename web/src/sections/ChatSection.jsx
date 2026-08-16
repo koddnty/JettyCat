@@ -214,12 +214,23 @@ export default function ChatSection({ active }) {
   }, [activeKey, loadHistory, resetList, setActiveKey]);
 
   useEffect(() => {
-    return subscribe(({ type, inner, sender, receiver }) => {
-      if (type !== 'private_message') return;
+    return subscribe(({ type, inner, sender, receiver, groupId }) => {
       const conv = activeRef.current;
       if (!conv) return;
-      if (Number(sender) !== Number(conv.id) && Number(receiver) !== Number(conv.id)) return;
-      if (Number(sender) !== Number(conv.id)) return;
+
+      if (type === 'private_message') {
+        if (conv.kind !== 'user') return;
+        if (Number(sender) !== Number(conv.id) && Number(receiver) !== Number(conv.id)) return;
+        if (Number(sender) !== Number(conv.id)) return;
+      } else if (type === 'group_message') {
+        if (conv.kind !== 'group') return;
+        if (Number(groupId) !== Number(conv.id)) return;
+        // 自己其他端的回显（后端跳过本端 session，但同 userId 的其他端会收到），跳过避免重复
+        if (Number(sender) === Number(myId)) return;
+      } else {
+        return;
+      }
+
       const key = keyOf(conv.kind, conv.id);
       const list = messagesMapRef.current.get(key) || [];
       const entry = {
@@ -255,7 +266,7 @@ export default function ChatSection({ active }) {
         messagesMapRef.current.set(key, list);
         const prevDate = list.length > 1 ? list[list.length - 2].date : 0;
         appendMsg(toChatUiMessage(entry, myId, prevDate));
-        sendMessage(conv.id, content);
+        sendMessage(conv.id, content, conv.kind);
         recordLastMessage(conv.kind, conv.id, content, now);
         setTyping(true);
         clearTimeout(typingTimerRef.current);
