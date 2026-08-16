@@ -229,12 +229,17 @@ export function ChatProvider({ children }) {
     setContactsReady(true);
   }, []);
 
-  // 调用服务端关系 API 的通用封装, 成功后自动刷新列表
+  // 调用服务端关系 API 的通用封装, 成功后自动刷新列表 (写操作使用 POST + JSON body)
   const apiMutation = useCallback(
     async (path, params) => {
       let data;
       try {
-        const response = await fetch(`${path}?${new URLSearchParams(params)}`, { credentials: 'include' });
+        const response = await fetch(path, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(params),
+        });
         data = await response.json();
       } catch (error) {
         return { status: 'error', error: '网络请求失败, 请稍后重试' };

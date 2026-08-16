@@ -4,8 +4,13 @@ import { useNavigate } from 'react-router-dom';
 const API_URL = '/api/login/jwt';
 const REGISTER_URL = '/api/registe/registe';
 
-async function requestJson(url, params) {
-  const response = await fetch(`${url}?${new URLSearchParams(params)}`, { method: 'GET', credentials: 'include' });
+async function requestJson(url, params, method = 'GET') {
+  const response = await fetch(url, {
+    method,
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: method === 'POST' ? JSON.stringify(params) : undefined,
+  });
   const text = await response.text();
   try {
     return JSON.parse(text);
@@ -104,7 +109,7 @@ export default function LoginPage() {
         username: regUsername.trim(),
         password: regPassword,
         reg_code: regCode.trim(),
-      });
+      }, 'POST');
       if (data.status !== 'success') throw new Error(data.error || '注册失败，请检查输入内容');
       showAlert('注册成功，正在进入控制台...', 'success');
       window.setTimeout(() => navigate('/main'), 700);

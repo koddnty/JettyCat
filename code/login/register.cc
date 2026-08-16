@@ -20,7 +20,7 @@ void Register::registeUrl(m_sylar::http::HttpServer::ptr server) {
     server->GET("/test", Register::test);
     server->GET("/registe/getRegCode", Register::coGetRegCode);
     server->GET("/login/jwt", Register::coLogin);
-    server->GET("/registe/registe", Register::registe);
+    server->POST("/registe/registe", Register::registe);
 }
 
 
@@ -104,13 +104,16 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
         co_return;
     }
 
-    // 获取请求参数
-    std::string username = "username";          // 用户名
-    std::string password = "password";          // 明文密码
-    std::string reg_code = "reg_code";          // 注册码（验证码）（coGetRegCode接口生成的验证码）
-    username = req->getParam(username);
-    password = req->getParam(password);
-    reg_code = req->getParam(reg_code);
+    // 获取请求参数 (body 中的 JSON)
+    nlohmann::json body;
+    try {
+        body = nlohmann::json::parse(req->getBody());
+    } catch (const std::exception& e) {
+        body = nlohmann::json::object();
+    }
+    std::string username = body.value("username", "");
+    std::string password = body.value("password", "");
+    std::string reg_code = body.value("reg_code", "");
 
     // 参数验证
     if(username.empty() || password.empty() || reg_code.empty()) {
@@ -188,16 +191,18 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
     // std::string password_hash = hashed_password; // 存储哈希值，盐单独存储
 
     // 插入
-    // std::cout << "hashed_password: " << hashed_password << std::endl;
-    std::string insert_user_query = "INSERT INTO users (username, password_hash, role) VALUES ('" + username + "', '" + hashed_password + "', 'USER')";
-    MySQLResp::ptr insert_user_resp = co_await m_sylar::DB::Mysql::getInstance()->executeQuery(
-        insert_user_query
-    );
-    // M_SYLAR_LOG_INFO(j_logger) << insert_user_query;
+    const std::string insert_user_query = "INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'USER')";
+    const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
+    MySQLStmt stmt {conn_wrap};
+    IOState state = IOState::TIMEOUT;
+    int count = 3;
+    while (state == IOState::TIMEOUT && count--) {
+        state = co_await stmt.co_execute(insert_user_query, username, hashed_password);
+    }
 
-    if(insert_user_resp->getState() != IOState::SUCCESS) {
+    if(state != IOState::SUCCESS) {
         nlohmann::json j;
-        if(insert_user_resp->getState() == IOState::TIMEOUT) {
+        if(state == IOState::TIMEOUT) {
             j["status"] = "error";
             j["error"] = "Internal Server Error";
             resp->setStatus(http::StatusCode::internal_server_error);

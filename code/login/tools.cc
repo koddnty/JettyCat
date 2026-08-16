@@ -6,10 +6,10 @@
 static m_sylar::Logger::ptr j_logger = M_SYLAR_LOG_NAME("jettyCat");
 
 m_sylar::ConfigVar<std::string>::ptr jwtKey = 
-    m_sylar::ConfigManager::LookUp<std::string>("Permission_system.JWTKey", "1397iausdh*^^^&46", JettyCat_CONFIG_ID, "JWT密钥");
+    m_sylar::ConfigManager::LookUp<std::string>("permission_system.JWTKey", "1397iausdh*^^^&46", JettyCat_CONFIG_ID, "JWT密钥");
 
 m_sylar::ConfigVar<uint64_t>::ptr jwtTimeOut =
-    m_sylar::ConfigManager::LookUp<uint64_t>("Permission_system.JWTTimeOut", 1728000, JettyCat_CONFIG_ID, "JWT密钥超时时常");
+    m_sylar::ConfigManager::LookUp<uint64_t>("permission_system.JWTTimeOut", 1728000, JettyCat_CONFIG_ID, "JWT密钥超时时常");
 
 // tools
 std::string RolePermissions::RoleToString(RolePermissions::Role role) {

@@ -77,10 +77,10 @@ void registeUrl(const http::HttpServer::ptr& server, const websocket::WsServer::
     server->GET("/chat/fetch_group_message", co_FetchGroupMessage);
     server->GET("/chat/friend_list", co_GetFriendList);
     server->GET("/chat/group_list", co_GetGroupList);
-    server->GET("/chat/add_friend", co_AddFriend);
-    server->GET("/chat/remove_friend", co_RemoveFriend);
-    server->GET("/chat/add_group", co_AddGroup);
-    server->GET("/chat/remove_group", co_RemoveGroup);
+    server->POST("/chat/add_friend", co_AddFriend);
+    server->POST("/chat/remove_friend", co_RemoveFriend);
+    server->POST("/chat/add_group", co_AddGroup);
+    server->POST("/chat/remove_group", co_RemoveGroup);
     ChatWebSocketServer::registeUrl(ws_server);
 }
 
@@ -604,8 +604,14 @@ Task<void> co_AddFriend(http::HttpSession::ptr session) {
         co_return;
     }
 
-    // 获取请求参数
-    std::string friend_id_str = req->getParam("friendId");
+    // 获取请求参数 (body 中的 JSON)
+    nlohmann::json body;
+    try {
+        body = nlohmann::json::parse(req->getBody());
+    } catch (const std::exception& e) {
+        body = nlohmann::json::object();
+    }
+    std::string friend_id_str = body.value("friendId", "");
     if (friend_id_str.empty()) {
         M_SYLAR_LOG_WARN(g_logger) << "co_AddFriend, missing required param: friendId";
         nlohmann::json j;
@@ -791,8 +797,14 @@ Task<void> co_RemoveFriend(http::HttpSession::ptr session) {
         co_return;
     }
 
-    // 获取请求参数
-    std::string friend_id_str = req->getParam("friendId");
+    // 获取请求参数 (body 中的 JSON)
+    nlohmann::json body;
+    try {
+        body = nlohmann::json::parse(req->getBody());
+    } catch (const std::exception& e) {
+        body = nlohmann::json::object();
+    }
+    std::string friend_id_str = body.value("friendId", "");
     if (friend_id_str.empty()) {
         M_SYLAR_LOG_WARN(g_logger) << "co_RemoveFriend, missing required param: friendId";
         nlohmann::json j;
@@ -908,8 +920,14 @@ Task<void> co_AddGroup(http::HttpSession::ptr session) {
         co_return;
     }
 
-    // 获取请求参数
-    std::string group_id_str = req->getParam("groupId");
+    // 获取请求参数 (body 中的 JSON)
+    nlohmann::json body;
+    try {
+        body = nlohmann::json::parse(req->getBody());
+    } catch (const std::exception& e) {
+        body = nlohmann::json::object();
+    }
+    std::string group_id_str = body.value("groupId", "");
     if (group_id_str.empty()) {
         M_SYLAR_LOG_WARN(g_logger) << "co_AddGroup, missing required param: groupId";
         nlohmann::json j;
@@ -1080,8 +1098,14 @@ Task<void> co_RemoveGroup(http::HttpSession::ptr session) {
         co_return;
     }
 
-    // 获取请求参数
-    std::string group_id_str = req->getParam("groupId");
+    // 获取请求参数 (body 中的 JSON)
+    nlohmann::json body;
+    try {
+        body = nlohmann::json::parse(req->getBody());
+    } catch (const std::exception& e) {
+        body = nlohmann::json::object();
+    }
+    std::string group_id_str = body.value("groupId", "");
     if (group_id_str.empty()) {
         M_SYLAR_LOG_WARN(g_logger) << "co_RemoveGroup, missing required param: groupId";
         nlohmann::json j;
