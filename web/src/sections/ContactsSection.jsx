@@ -23,8 +23,8 @@ export default function ContactsSection({ onOpenChat }) {
     setBusy(true);
     try {
       const result = mode === 'group' ? await addGroup(value) : await addFriend(value);
-      if (!result || result.status !== 'success') {
-        showNotice(mode === 'group' ? '加入群聊' : '添加好友', (result && result.error) || '操作失败, 请稍后重试');
+      if (!result || result.code !== 200) {
+        showNotice(mode === 'group' ? '加入群聊' : '添加好友', (result && result.msg) || '操作失败, 请稍后重试');
         return;
       }
       setOpen(false);
@@ -41,8 +41,8 @@ export default function ContactsSection({ onOpenChat }) {
     const label = item.kind === 'group' ? `退出群聊「${item.name}」?` : `删除好友「${item.name}」?`;
     if (!window.confirm(label)) return;
     const result = item.kind === 'group' ? await removeGroup(item.id) : await removeFriend(item.id);
-    if (!result || result.status !== 'success') {
-      showNotice(item.kind === 'group' ? '退出群聊' : '删除好友', (result && result.error) || '操作失败, 请稍后重试');
+    if (!result || result.code !== 200) {
+      showNotice(item.kind === 'group' ? '退出群聊' : '删除好友', (result && result.msg) || '操作失败, 请稍后重试');
     }
   };
 

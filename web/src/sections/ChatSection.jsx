@@ -59,8 +59,8 @@ export default function ChatSection({ active }) {
       const endpoint = conv.kind === 'group' ? '/api/chat/fetch_group_message' : '/api/chat/fetch_user_message';
       const response = await fetch(`${endpoint}?${params}`, { credentials: 'include' });
       const page = await response.json();
-      if (page.status !== 'success') throw new Error(page.error || 'history request failed');
-      const items = Array.isArray(page.messages) ? page.messages : [];
+      if (page.code !== 200) throw new Error(page.msg || 'history request failed');
+      const items = Array.isArray(page.data && page.data.messages) ? page.data.messages : [];
       streamsRef.current[stream].offset += items.length;
       if (items.length < HISTORY_PAGE) streamsRef.current[stream].done = true;
       return items;

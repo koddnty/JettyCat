@@ -176,11 +176,11 @@ export function ChatProvider({ children }) {
       ]);
       const friendData = await friendResp.json();
       const groupData = await groupResp.json();
-      if (friendData && friendData.status === 'success' && Array.isArray(friendData.friends)) {
-        friends = friendData.friends;
+      if (friendData && friendData.code === 200 && friendData.data && Array.isArray(friendData.data.friends)) {
+        friends = friendData.data.friends;
       }
-      if (groupData && groupData.status === 'success' && Array.isArray(groupData.groups)) {
-        groups = groupData.groups;
+      if (groupData && groupData.code === 200 && groupData.data && Array.isArray(groupData.data.groups)) {
+        groups = groupData.data.groups;
       }
     } catch (error) {
       /* network errors keep the current list intact */
@@ -242,12 +242,12 @@ export function ChatProvider({ children }) {
         });
         data = await response.json();
       } catch (error) {
-        return { status: 'error', error: '网络请求失败, 请稍后重试' };
+        return { code: 0, status: 'error', msg: '网络请求失败, 请稍后重试' };
       }
-      if (data && data.status === 'success') {
+      if (data && data.code === 200) {
         await refreshLists();
       }
-      return data || { status: 'error', error: '服务端响应异常' };
+      return data || { code: 500, status: 'error', msg: '服务端响应异常' };
     },
     [refreshLists]
   );

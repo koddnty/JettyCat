@@ -28,6 +28,18 @@ public:
     [[nodiscard]] Task<resp::HttpResponse> removeFriend(
                          JettyCat::chat::userId self_id, const std::string& friend_id_str) const;
 
+    /**
+     * @brief 添加好友（校验 friendId + 校验目标存在 + 写入）
+     */
+    [[nodiscard]] Task<resp::HttpResponse> addFriend(
+                         JettyCat::chat::userId self_id, const std::string& friend_id_str) const;
+
+    /**
+     * @brief 获取好友列表
+     */
+    [[nodiscard]] Task<resp::HttpResponse> getFriendList(
+                         JettyCat::chat::userId self_id) const;
+
 private:
     std::shared_ptr<dao::FriendDao> m_friend_dao;
 };

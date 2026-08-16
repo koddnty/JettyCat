@@ -17,6 +17,27 @@ public:
     [[nodiscard]] Task<JettyCat::chat::DBState> removeFriend(JettyCat::chat::userId self_id,
                                                     JettyCat::chat::userId friend_id) const;
 
+    /**
+     * @brief 添加好友（已存在则恢复 status=1）；内部处理 CHECK 约束排序
+     * @return SUCCESS=执行成功；TIMEOUT=查询超时；FAILED=数据库失败
+     */
+    [[nodiscard]] Task<JettyCat::chat::DBState> addFriend(JettyCat::chat::userId self_id,
+                                                 JettyCat::chat::userId friend_id) const;
+
+    /**
+     * @brief 判断用户是否存在
+     * @param exists 输出：true=存在，false=不存在（仅在返回 SUCCESS 时有效）
+     */
+    [[nodiscard]] Task<JettyCat::chat::DBState> userExists(JettyCat::chat::userId user_id,
+                                                  bool& exists) const;
+
+    /**
+     * @brief 查询好友列表（双向 union，满足 user_id < friend_id 约束）
+     * @param friends_out 输出：好友数组，每项含 friend_id/username/nickname/avatar_url
+     */
+    [[nodiscard]] Task<JettyCat::chat::DBState> listFriends(JettyCat::chat::userId self_id,
+                                                   nlohmann::json& friends_out) const;
+
 private:
     std::shared_ptr<DbProvider> m_db;       // 数据库依赖
 };

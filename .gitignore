@@ -63,3 +63,4 @@ private
 # frontend build tooling
 web/node_modules/
 web/dist/
+make

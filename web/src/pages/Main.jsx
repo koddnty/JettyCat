@@ -86,8 +86,8 @@ export default function MainPage() {
     setAddBusy(true);
     try {
       const result = addMode === 'group' ? await addGroup(value) : await addFriend(value);
-      if (!result || result.status !== 'success') {
-        showNotice(addMode === 'group' ? '加入群聊' : '添加好友', (result && result.error) || '操作失败, 请稍后重试');
+      if (!result || result.code !== 200) {
+        showNotice(addMode === 'group' ? '加入群聊' : '添加好友', (result && result.msg) || '操作失败, 请稍后重试');
         return;
       }
       setAddOpen(false);
@@ -103,8 +103,8 @@ export default function MainPage() {
     const label = item.kind === 'group' ? `退出群聊「${item.name}」?` : `删除好友「${item.name}」?`;
     if (!window.confirm(label)) return;
     const result = item.kind === 'group' ? await removeGroup(item.id) : await removeFriend(item.id);
-    if (!result || result.status !== 'success') {
-      showNotice(item.kind === 'group' ? '退出群聊' : '删除好友', (result && result.error) || '操作失败, 请稍后重试');
+    if (!result || result.code !== 200) {
+      showNotice(item.kind === 'group' ? '退出群聊' : '删除好友', (result && result.msg) || '操作失败, 请稍后重试');
       return;
     }
     if (activeConversation && activeConversation.kind === item.kind && Number(activeConversation.id) === Number(item.id)) {

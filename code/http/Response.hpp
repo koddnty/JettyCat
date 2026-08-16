@@ -1,11 +1,4 @@
-// HttpResponse.hpp —— 统一的 HTTP 响应 class（风格对齐 WsMessage）
-//
-// 目的：把各 handler 散落的响应拼装收敛成一个标准形状：
-//   成功：   {"code":200,"status":"success","msg":"ok","data":...}
-//   业务失败：{"code":400,"status":"failed","msg":"...","data":null}
-//   服务端错误：{"code":500,"status":"error","msg":"...","data":null}
-//
-// 使用方式与 WsMessage 一致：默认构造 + 链式 setter + getter + dump()。
+
 #pragma once
 
 #include <nlohmann/json.hpp>
