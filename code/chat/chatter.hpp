@@ -67,6 +67,7 @@ Task<void> co_FetchUserMessage(http::HttpSession::ptr session);     // 返回部
 Task<void> co_FetchGroupMessage(http::HttpSession::ptr session);     // 返回部分消息.
 Task<void> co_GetFriendList(http::HttpSession::ptr session);        // 返回当前用户好友列表.
 Task<void> co_GetGroupList(http::HttpSession::ptr session);         // 返回当前用户群聊列表.
+Task<void> co_GetUserProfile(http::HttpSession::ptr session);       // 查询某个用户的公开信息(昵称/头像/用户名/ID).
 Task<void> co_AddFriend(http::HttpSession::ptr session);            // 添加好友.
 Task<void> co_RemoveFriend(http::HttpSession::ptr session);         // 删除好友(标记删除).
 Task<void> co_AddGroup(http::HttpSession::ptr session);             // 加入群聊.

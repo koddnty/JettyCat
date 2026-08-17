@@ -40,6 +40,14 @@ public:
     [[nodiscard]] Task<resp::HttpResponse> getFriendList(
                          JettyCat::chat::userId self_id) const;
 
+    /**
+     * @brief 查询某个用户的公开信息（昵称/头像/用户名/ID），用于非好友的陌生用户资料展示
+     * @param user_id_str 前端传的 "userId" 字段（原始字符串）
+     * @return 成功：data.user 含 user_id/username/nickname/avatar_url
+     */
+    [[nodiscard]] Task<resp::HttpResponse> getPublicProfile(
+                         const std::string& user_id_str) const;
+
 private:
     std::shared_ptr<dao::FriendDao> m_friend_dao;
 };

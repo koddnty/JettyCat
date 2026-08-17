@@ -72,7 +72,13 @@ export default function ContactsSection({ onOpenChat }) {
         <ul className="contact-list">
           {friends.map((item) => (
             <li key={`user:${item.id}`} className="contact-item">
-              <span className="contact-avatar">{initials(item.name)}</span>
+              <span className="contact-avatar">
+                {item.avatarUrl ? (
+                  <img className="contact-avatar-img" src={item.avatarUrl} alt={item.name} />
+                ) : (
+                  initials(item.name)
+                )}
+              </span>
               <span className="contact-copy">
                 <strong>{item.name}</strong>
                 <small>ID {item.id}</small>
@@ -96,7 +102,13 @@ export default function ContactsSection({ onOpenChat }) {
         <ul className="contact-list">
           {groups.map((item) => (
             <li key={`group:${item.id}`} className="contact-item">
-              <span className="contact-avatar">{initials(item.name)}</span>
+              <span className="contact-avatar">
+                {item.avatarUrl ? (
+                  <img className="contact-avatar-img" src={item.avatarUrl} alt={item.name} />
+                ) : (
+                  initials(item.name)
+                )}
+              </span>
               <span className="contact-copy">
                 <strong>{item.name}</strong>
                 <small>ID {item.id}</small>

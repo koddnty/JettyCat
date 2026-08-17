@@ -146,6 +146,7 @@ void registeUrl(const http::HttpServer::ptr& server, const websocket::WsServer::
     server->GET("/chat/fetch_group_message", co_FetchGroupMessage);
     server->GET("/chat/friend_list", co_GetFriendList);
     server->GET("/chat/group_list", co_GetGroupList);
+    server->GET("/chat/user_profile", co_GetUserProfile);
     server->POST("/chat/add_friend", co_AddFriend);
     server->POST("/chat/remove_friend", co_RemoveFriend);
     server->POST("/chat/add_group", co_AddGroup);
@@ -281,6 +282,43 @@ Task<void> co_GetGroupList(http::HttpSession::ptr session) {
 
     if (!result.isOk()) {
         M_SYLAR_LOG_WARN(g_logger) << "co_GetGroupList, business failed: " << result.getMsg();
+    }
+    sendResp(session, result);
+    co_await session->co_sendResp();
+    co_return;
+}
+
+Task<void> co_GetUserProfile(http::HttpSession::ptr session) {
+    http::Request::ptr req = session->getRequest();
+    if (!TemplateHeader::CORSALL(session)) {
+        co_await session->co_sendResp();
+        co_return;
+    }
+
+    // 协议层职责：身份验证
+    std::string jwt = req->getCookie("jwttoken");
+    if (jwt.empty() || JWT::verifyJWT(jwt) != JWT::State::SUCCESS) {
+        M_SYLAR_LOG_WARN(g_logger) << "co_GetUserProfile, unauthorized: invalid or missing JWT token";
+        sendResp(session, 403, "FORBIDDEN: Invalid or missing JWT token");
+        co_await session->co_sendResp();
+        co_return;
+    }
+    JettyCat::chat::userId jwt_user_id = JWT::parserPayload(jwt).user_id;
+    if (jwt_user_id <= 0) {
+        M_SYLAR_LOG_WARN(g_logger) << "co_GetUserProfile, invalid JWT payload, user_id=" << jwt_user_id;
+        sendResp(session, 403, "FORBIDDEN: Invalid JWT payload");
+        co_await session->co_sendResp();
+        co_return;
+    }
+
+    // 协议层职责：取参数
+    std::string user_id_str = req->getParam("userId");
+
+    // 业务逻辑交给 service
+    const auto result = co_await getFriendService().getPublicProfile(user_id_str);
+
+    if (!result.isOk()) {
+        M_SYLAR_LOG_WARN(g_logger) << "co_GetUserProfile, business failed: " << result.getMsg();
     }
     sendResp(session, result);
     co_await session->co_sendResp();

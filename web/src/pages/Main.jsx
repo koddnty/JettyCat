@@ -17,7 +17,7 @@ const SECTION_META = {
 const SECTION_ORDER = ['chat', 'contacts', 'live', 'analytics'];
 
 export default function MainPage() {
-  const { connected, myId, myName, conversations, activity, sortMode, changeSortMode, notices, dismissNotice, addFriend, removeFriend, addGroup, removeGroup, connect, disconnect, unread, lastMessages, setActiveKey, clearUnread, showNotice } = useChat();
+  const { connected, myId, myName, myAvatarUrl, conversations, activity, sortMode, changeSortMode, notices, dismissNotice, addFriend, removeFriend, addGroup, removeGroup, connect, disconnect, unread, lastMessages, setActiveKey, clearUnread, showNotice, fetchUserProfile } = useChat();
   const [section, setSection] = useState('chat');
   const [activeConversation, setActiveConversation] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -159,14 +159,21 @@ export default function MainPage() {
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((v) => !v)}
           >
-            <span className="profile-avatar">{initials(myName)}</span>
+            <span className="profile-avatar">
+              {myAvatarUrl ? (
+                <img className="profile-avatar-img" src={myAvatarUrl} alt={myName} />
+              ) : (
+                initials(myName)
+              )}
+            </span>
             <span className="profile-copy">
-              <strong>{myId ? `ID ${myId}` : 'ID --'}</strong>
+              <strong>{myName || 'jettyCat 用户'}</strong>
             </span>
             <svg className="profile-chevron" focusable="false" aria-hidden="true"><use href="#icon-chevron" /></svg>
           </button>
           {menuOpen && (
             <div className="profile-menu">
+              {myId && <div className="profile-info-line">ID {myId}</div>}
               <button type="button" onClick={() => { setMenuOpen(false); selectSection('settings'); }}>账户设置</button>
               <button type="button" onClick={() => { setMenuOpen(false); logout(); }}>退出登录</button>
             </div>
@@ -213,6 +220,8 @@ export default function MainPage() {
           onRemove={section === 'chat' ? handleRemove : null}
           sortMode={section === 'chat' ? sortMode : null}
           onSortModeChange={changeSortMode}
+          fetchUserProfile={fetchUserProfile}
+          myId={myId}
         />
 
         <section className="workspace-content">{renderSection()}</section>
@@ -317,6 +326,7 @@ function buildSidebarItems(section, conversations, activeConversation, unread, l
         unread: unread[key] || 0,
         lastActive,
         active: activeConversation && activeConversation.kind === item.kind && Number(activeConversation.id) === Number(item.id),
+        avatarUrl: item.avatarUrl || '',
       };
     });
     return sortChatItems(items, sortMode);
@@ -353,8 +363,39 @@ function formatActivityTime(ts) {
   return `${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
-function Sidebar({ section, items, activeKey, open, onSelect, onAdd, onRemove, sortMode, onSortModeChange }) {
+function Sidebar({ section, items, activeKey, open, onSelect, onAdd, onRemove, sortMode, onSortModeChange, fetchUserProfile, myId }) {
   const [query, setQuery] = useState('');
+  const [menuOpen, setMenuOpen] = useState(null);
+  const [profileCache, setProfileCache] = useState({});
+  const [profileLoading, setProfileLoading] = useState(null);
+
+  // 点击菜单外部时关闭浮窗
+  useEffect(() => {
+    if (menuOpen === null) return;
+    const close = () => setMenuOpen(null);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [menuOpen]);
+
+  const handleMoreClick = async (item, e) => {
+    e.stopPropagation();
+    const key = item.key;
+    if (menuOpen === key) {
+      setMenuOpen(null);
+      return;
+    }
+    setMenuOpen(key);
+    // 群聊不显示用户资料，只显示删除选项
+    if (item.kind === 'group') return;
+    // 如果已缓存，直接显示
+    if (profileCache[key]) return;
+    // 加载用户资料
+    setProfileLoading(key);
+    const prof = await fetchUserProfile(item.id);
+    setProfileCache((prev) => ({ ...prev, [key]: prof || { error: true } }));
+    setProfileLoading(null);
+  };
+
   const list = section === 'chat'
     ? items.filter((item) => {
         if (!query) return true;
@@ -401,44 +442,115 @@ function Sidebar({ section, items, activeKey, open, onSelect, onAdd, onRemove, s
           </div>
         )}
         {list.map((item) => (
-          <button
+          <div
             key={item.key}
-            type="button"
             className={`section-list-item${item.kind === 'live' ? ' live' : ''}${item.active || activeKey === item.key ? ' active' : ''}`}
-            onClick={() => onSelect(item)}
           >
-            <span className="list-avatar">{initials(item.name || item.title)}</span>
-            <span className="section-list-copy">
-              <strong>{item.name || item.title}</strong>
-              <small>{item.sub}</small>
+            <span className="list-avatar" style={{ flexShrink: 0 }}>
+              {item.avatarUrl ? (
+                <img className="list-avatar-img" src={item.avatarUrl} alt={item.name || item.title} />
+              ) : (
+                initials(item.name || item.title)
+              )}
             </span>
+            <button
+              type="button"
+              className="section-list-copy-btn"
+              onClick={() => onSelect(item)}
+            >
+              <span className="section-list-copy">
+                <strong>{item.name || item.title}</strong>
+                <small>{item.sub}</small>
+              </span>
+            </button>
             {item.unread > 0 ? (
               <span className="list-badge">{item.unread > 99 ? '99+' : item.unread}</span>
             ) : (
               <span className="list-time">{item.kind === 'live' ? (item.time || '') : formatActivityTime(item.lastActive)}</span>
             )}
             {onRemove && (
-              <span
-                className="list-remove"
-                role="button"
-                tabIndex={0}
-                title={item.kind === 'group' ? '退出群聊' : '删除好友'}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRemove(item);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onRemove(item);
-                  }
-                }}
-              >
-                ×
+              <span className="list-more-wrap">
+                <button
+                  type="button"
+                  className="list-more-btn"
+                  aria-label="更多"
+                  onClick={(e) => handleMoreClick(item, e)}
+                >
+                  <svg focusable="false" aria-hidden="true"><use href="#icon-more" /></svg>
+                </button>
+                {menuOpen === item.key && (
+                  <div className="list-more-menu">
+                    {/* 群聊：只显示删除/退出选项 */}
+                    {item.kind === 'group' ? (
+                      <button
+                        type="button"
+                        className="list-more-action list-more-danger"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMenuOpen(null);
+                          onRemove(item);
+                        }}
+                      >
+                        退出群聊
+                      </button>
+                    ) : (
+                      <>
+                        {/* 用户资料卡片 */}
+                        <div className="list-more-profile">
+                          {profileLoading === item.key ? (
+                            <div className="list-more-profile-loading">加载中...</div>
+                          ) : profileCache[item.key] && !profileCache[item.key].error ? (
+                            <>
+                              <div className="list-more-profile-header">
+                                {profileCache[item.key].avatarUrl ? (
+                                  <img className="list-more-profile-avatar" src={profileCache[item.key].avatarUrl} alt={profileCache[item.key].nickname || profileCache[item.key].username} />
+                                ) : (
+                                  <span className="list-more-profile-avatar list-more-profile-avatar-fallback">
+                                    {initials(profileCache[item.key].nickname || profileCache[item.key].username || item.name)}
+                                  </span>
+                                )}
+                                <div className="list-more-profile-info">
+                                  <div className="list-more-profile-name">{profileCache[item.key].nickname || profileCache[item.key].username || item.name}</div>
+                                  <div className="list-more-profile-id">ID {profileCache[item.key].id || item.id}</div>
+                                </div>
+                              </div>
+                              {profileCache[item.key].username && profileCache[item.key].nickname && (
+                                <div className="list-more-profile-detail">用户名: {profileCache[item.key].username}</div>
+                              )}
+                            </>
+                          ) : (
+                            <div className="list-more-profile-header">
+                              {item.avatarUrl ? (
+                                <img className="list-more-profile-avatar" src={item.avatarUrl} alt={item.name} />
+                              ) : (
+                                <span className="list-more-profile-avatar list-more-profile-avatar-fallback">{initials(item.name)}</span>
+                              )}
+                              <div className="list-more-profile-info">
+                                <div className="list-more-profile-name">{item.name}</div>
+                                <div className="list-more-profile-id">ID {item.id}</div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        {/* 删除好友选项 */}
+                        <button
+                          type="button"
+                          className="list-more-action list-more-danger"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMenuOpen(null);
+                            onRemove(item);
+                          }}
+                        >
+                          删除好友
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
               </span>
             )}
-          </button>
+          </div>
         ))}
       </div>
     </aside>

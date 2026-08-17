@@ -138,4 +138,48 @@ Task<JettyCat::chat::DBState> FriendDao::listFriends(const JettyCat::chat::userI
     co_return JettyCat::chat::DBState::SUCCESS;
 }
 
+
+Task<JettyCat::chat::DBState> FriendDao::getPublicProfile(const JettyCat::chat::userId user_id,
+                                                       bool& exists, nlohmann::json& profile_out) const {
+    const std::string sql =
+        "select u.user_id, u.username, u.nickname, u.avatar from users u where u.user_id = ?";
+
+    auto conn = m_db->borrowConn();
+    MySQLStmt<int, STMT_Text<50>, STMT_Text<100>, STMT_Text<500>> stmt {conn};
+
+    IOState state = IOState::TIMEOUT;
+    int count = 3;
+    while (state == IOState::TIMEOUT && count--) {
+        state = co_await stmt.co_execute(sql, user_id);
+    }
+    if (state != IOState::SUCCESS) {
+        co_return state == IOState::TIMEOUT ? JettyCat::chat::DBState::TIMEOUT
+                                            : JettyCat::chat::DBState::FAILED;
+    }
+    if (co_await stmt.co_storeAll() != IOState::SUCCESS) {
+        co_return JettyCat::chat::DBState::FAILED;
+    }
+    if (co_await stmt.co_fetchAll() != IOState::SUCCESS) {
+        co_return JettyCat::chat::DBState::FAILED;
+    }
+
+    auto rows = stmt.getResult().getAll();
+    if (rows.empty()) {
+        exists = false;
+        co_return JettyCat::chat::DBState::SUCCESS;
+    }
+
+    exists = true;
+    nlohmann::json profile;
+    {
+        auto& row = rows.front();
+        profile["user_id"]    = std::get<0>(row);
+        profile["username"]   = std::get<1>(row).toString();
+        profile["nickname"]   = std::get<2>(row).toString();
+        profile["avatar_url"] = std::get<3>(row).toString();
+    }
+    profile_out = std::move(profile);
+    co_return JettyCat::chat::DBState::SUCCESS;
+}
+
 } // namespace chatter::dao

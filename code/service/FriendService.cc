@@ -128,4 +128,50 @@ namespace chatter::service {
     }
     co_return http_response;
 }
+
+
+[[nodiscard]] Task<resp::HttpResponse> FriendService::getPublicProfile(
+                        const std::string& user_id_str) const {
+    resp::HttpResponse http_response;
+
+    // ---------- 参数校验 ----------
+    if (user_id_str.empty()) {
+        http_response.setCode(400).setMsg("BAD_REQUEST: Missing or invalid 'userId'");
+        co_return http_response;
+    }
+    JettyCat::chat::userId user_id = 0;
+    bool parse_error = false;
+    try {
+        user_id = std::stoi(user_id_str);
+    } catch (const std::exception&) {
+        parse_error = true;
+    }
+    if (parse_error || user_id <= 0) {
+        http_response.setCode(400).setMsg("BAD_REQUEST: Invalid 'userId'");
+        co_return http_response;
+    }
+
+    // ---------- 调用 DAO ----------
+    bool exists = false;
+    nlohmann::json profile;
+    switch (co_await m_friend_dao->getPublicProfile(user_id, exists, profile)) {
+    case JettyCat::chat::DBState::SUCCESS:
+        break;
+    case JettyCat::chat::DBState::TIMEOUT:
+        http_response.setCode(500).setMsg("Database query timeout");
+        co_return http_response;
+    default:
+        http_response.setCode(500).setMsg("Database query failed");
+        co_return http_response;
+    }
+    if (!exists) {
+        http_response.setCode(404).setMsg("NOT_FOUND: user does not exist");
+        co_return http_response;
+    }
+
+    nlohmann::json data;
+    data["user"] = profile;
+    http_response.setCode(200).setMsg("ok").setData(data);
+    co_return http_response;
 }
+} // namespace chatter::service}

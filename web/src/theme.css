@@ -438,10 +438,17 @@ button {
   display: grid;
   place-items: center;
   border-radius: 50%;
+  overflow: hidden;
   color: #fff;
   background: linear-gradient(135deg, #7367ef, #a275d8);
   font-size: 11px;
   font-weight: 700;
+}
+
+.profile-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .profile-copy strong {
@@ -483,6 +490,14 @@ button {
 .profile-menu button:hover {
   background: var(--jet-purple-soft);
   color: var(--jet-purple);
+}
+
+.profile-info-line {
+  padding: 8px 11px 6px;
+  color: var(--jet-muted);
+  font-size: 12px;
+  border-bottom: 1px solid var(--jet-line);
+  margin-bottom: 4px;
 }
 
 .workspace-shell {
@@ -718,10 +733,17 @@ button {
   display: grid;
   place-items: center;
   border-radius: 10px;
+  overflow: hidden;
   color: #5d57ad;
   background: #eae8ff;
   font-size: 11px;
   font-weight: 700;
+}
+
+.list-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .section-list-item.live .list-avatar {
@@ -757,32 +779,148 @@ button {
   font-size: 10px;
 }
 
-.list-remove {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
+/* 侧栏会话列表的可点击复制区域 */
+.section-list-copy-btn {
+  all: unset;
+  flex: 1;
+  min-width: 0;
+}
+
+/* 三点更多菜单容器 */
+.list-more-wrap {
+  position: relative;
+  flex: none;
+}
+
+.list-more-btn {
+  all: unset;
   display: none;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  border: 0;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   color: #a1a6b4;
-  background: var(--jet-panel);
-  font-size: 15px;
-  line-height: 1;
   cursor: pointer;
+  box-sizing: border-box;
 }
 
-.section-list-item:hover .list-remove {
+.list-more-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.section-list-item:hover .list-more-btn {
   display: flex;
 }
 
-.list-remove:hover {
+.list-more-btn:hover {
+  color: var(--jet-purple);
+  background: var(--jet-purple-soft);
+}
+
+.list-more-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 4px;
+  min-width: 220px;
+  padding: 6px;
+  border: 1px solid var(--jet-line);
+  border-radius: 12px;
+  background: var(--jet-panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  overflow: hidden;
+}
+
+.list-more-action {
+  all: unset;
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--jet-ink);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.list-more-action:hover {
+  background: var(--color-fill-2);
+}
+
+.list-more-danger {
   color: #f05c72;
+  background: transparent;
+}
+
+.list-more-danger:hover {
   background: #ffe8ec;
+}
+
+/* 三点菜单内的用户资料卡片 */
+.list-more-profile {
+  padding: 12px;
+  border-bottom: 1px solid var(--jet-line);
+}
+
+.list-more-profile-loading {
+  color: var(--jet-muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 8px 0;
+}
+
+.list-more-profile-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.list-more-profile-avatar {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.list-more-profile-avatar-fallback {
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(135deg, #7367ef, #a275d8);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.list-more-profile-info {
+  min-width: 0;
+}
+
+.list-more-profile-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--jet-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.list-more-profile-id {
+  font-size: 12px;
+  color: var(--jet-muted);
+  margin-top: 3px;
+}
+
+.list-more-profile-detail {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--jet-line);
+  font-size: 12px;
+  color: var(--jet-muted);
 }
 
 .list-badge {
@@ -1058,10 +1196,17 @@ button {
   display: grid;
   place-items: center;
   border-radius: 11px;
+  overflow: hidden;
   color: #5d57ad;
   background: #eae8ff;
   font-size: 12px;
   font-weight: 700;
+}
+
+.contact-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .contact-copy {

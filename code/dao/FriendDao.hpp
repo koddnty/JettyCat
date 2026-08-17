@@ -38,6 +38,15 @@ public:
     [[nodiscard]] Task<JettyCat::chat::DBState> listFriends(JettyCat::chat::userId self_id,
                                                    nlohmann::json& friends_out) const;
 
+    /**
+     * @brief 查询某个用户的公开信息（昵称/头像/用户名/ID），用于非好友的陌生用户资料展示
+     * @param user_id 要查询的用户 id
+     * @param exists   输出：用户是否存在
+     * @param profile_out 输出：仅当 exists 为 true 时有意义，含 user_id/username/nickname/avatar_url
+     */
+    [[nodiscard]] Task<JettyCat::chat::DBState> getPublicProfile(
+        JettyCat::chat::userId user_id, bool& exists, nlohmann::json& profile_out) const;
+
 private:
     std::shared_ptr<DbProvider> m_db;       // 数据库依赖
 };

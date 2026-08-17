@@ -75,6 +75,7 @@ export function ChatProvider({ children }) {
   const [connected, setConnected] = useState(false);
   const [myId, setMyId] = useState(null);
   const [myName, setMyName] = useState('jettyCat 用户');
+  const [myAvatarUrl, setMyAvatarUrl] = useState('');
   const [conversations, setConversations] = useState([]);
   const [activity, setActivity] = useState(loadActivity);
   const [sortMode, setSortMode] = useState(loadSortMode);
@@ -170,6 +171,27 @@ export function ChatProvider({ children }) {
       localStorage.setItem(SORT_STORE, next);
     } catch (error) {
       /* storage is optional */
+    }
+  }, []);
+
+  // 查询某个用户的公开信息(昵称/头像/用户名/ID)，用于非好友的陌生用户资料展示。
+  // 返回 { id, username, nickname, avatarUrl }；失败时返回 null。
+  const fetchUserProfile = useCallback(async (userId) => {
+    const id = Number(userId);
+    if (!Number.isInteger(id) || id < 1) return null;
+    try {
+      const response = await fetch(`/api/chat/user_profile?userId=${id}`, { credentials: 'include' });
+      const data = await response.json();
+      const u = data && data.code === 200 && data.data && data.data.user;
+      if (!u) return null;
+      return {
+        id: Number(u.user_id),
+        username: u.username || '',
+        nickname: u.nickname || '',
+        avatarUrl: u.avatar_url || '',
+      };
+    } catch (error) {
+      return null;
     }
   }, []);
 
@@ -270,6 +292,17 @@ export function ChatProvider({ children }) {
   useEffect(() => {
     if (myId != null) refreshLists();
   }, [myId, refreshLists]);
+
+  // 连接成功后拉取自己的头像
+  useEffect(() => {
+    if (myId == null) return;
+    let cancelled = false;
+    (async () => {
+      const prof = await fetchUserProfile(myId);
+      if (!cancelled && prof && prof.avatarUrl) setMyAvatarUrl(prof.avatarUrl);
+    })();
+    return () => { cancelled = true; };
+  }, [myId, fetchUserProfile]);
 
   const flushQueue = useCallback(() => {
     if (flushingRef.current) return;
@@ -480,6 +513,7 @@ export function ChatProvider({ children }) {
     connected,
     myId,
     myName,
+    myAvatarUrl,
     conversations,
     activity,
     sortMode,
@@ -500,6 +534,7 @@ export function ChatProvider({ children }) {
     recordLastMessage,
     touchActivity,
     changeSortMode,
+    fetchUserProfile,
     refreshLists,
     connect,
     disconnect,
