@@ -2,6 +2,19 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallba
 import Chat, { Bubble, useMessages } from '@chatui/core';
 import { useChat } from '../ws';
 
+const toolbarIcon = (body) => `data:image/svg+xml,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#42454b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`
+)}`;
+
+const TOOLBAR_ICONS = {
+  emoji: toolbarIcon('<circle cx="12" cy="12" r="9"/><circle cx="9" cy="10" r=".7" fill="#42454b"/><circle cx="15" cy="10" r=".7" fill="#42454b"/><path d="M8.5 14.2c1.8 2 5.2 2 7 0"/>'),
+  sticker: toolbarIcon('<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4.5 7.5 7.5 4 7.5-4M12 11.5V21"/>'),
+  file: toolbarIcon('<path d="M3.5 6.5h6l1.6 2H20.5v9.8a1.7 1.7 0 0 1-1.7 1.7H5.2a1.7 1.7 0 0 1-1.7-1.7V6.5Z"/><path d="M3.5 9h17"/>'),
+  screenshot: toolbarIcon('<circle cx="7" cy="7" r="2.2"/><path d="M3 11V6a3 3 0 0 1 3-3h5M13 3h5a3 3 0 0 1 3 3v5M21 13v5a3 3 0 0 1-3 3h-5M11 21H6a3 3 0 0 1-3-3v-5M4 20 20 4"/>'),
+  more: toolbarIcon('<path d="m8 9 4 4 4-4"/>'),
+  chat: toolbarIcon('<path d="M20 11a7.5 7.5 0 0 1-11 6.6L4 19l1.5-4A7.5 7.5 0 1 1 20 11Z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/>'),
+};
+
 const HISTORY_PAGE = 10;
 
 function keyOf(kind, id) {
@@ -12,6 +25,7 @@ export default function ChatSection({ active }) {
   const { myId, myName, myAvatarUrl, connected, subscribe, sendMessage, showNotice, setActiveKey, recordLastMessage, fetchUserProfile } = useChat();
   const { messages, appendMsg, prependMsgs, resetList } = useMessages([]);
   const [typing, setTyping] = useState(false);
+  const [avatarProfile, setAvatarProfile] = useState(null);
   const typingTimerRef = useRef(null);
   const messagesMapRef = useRef(new Map());
   const profileCacheRef = useRef(new Map());
@@ -79,35 +93,27 @@ export default function ChatSection({ active }) {
   );
 
   // 根据发送者 id 解析聊天里要显示的昵称与头像(用于 QQ 式的消息气泡)。
-  // 命中私聊对方 / 自己时直接用会话或个人资料; 其他成员(群聊)从公开资料接口懒加载并缓存。
-  // inflightRef 保证同一个 userId 同时只发一次网络请求, 后续调用复用同一个 Promise。
   const resolveDisplayMeta = useCallback(
     (fromId) => {
       const from = Number(fromId);
       const conv = activeRef.current;
       const key = `user:${from}`;
 
-      // 1. 已缓存 → 直接返回
       if (profileCacheRef.current.has(key)) return Promise.resolve(profileCacheRef.current.get(key));
-
-      // 2. 正在请求中 → 复用同一个 Promise
       if (inflightRef.current.has(key)) return inflightRef.current.get(key);
 
-      // 3. 自己
       if (from === Number(myId)) {
         const meta = { name: myName || '我', avatar: myAvatarUrl || '' };
         profileCacheRef.current.set(key, meta);
         return Promise.resolve(meta);
       }
 
-      // 4. 私聊对方（好友）→ 直接用会话元数据
       if (conv && conv.kind === 'user' && from === Number(conv.id)) {
         const meta = { name: conv.name || `用户 ${from}`, avatar: conv.avatarUrl || '' };
         profileCacheRef.current.set(key, meta);
         return Promise.resolve(meta);
       }
 
-      // 5. 非好友 / 群成员: 懒加载公开资料, 失败则退回 "用户 {id}"
       const promise = (async () => {
         const prof = await fetchUserProfile(from);
         const meta = prof
@@ -121,6 +127,31 @@ export default function ChatSection({ active }) {
       return promise;
     },
     [myId, myName, myAvatarUrl, fetchUserProfile]
+  );
+
+  // 点击头像时：优先用缓存，无缓存则拉取
+  const handleAvatarClick = useCallback(
+    async (fromId) => {
+      const from = Number(fromId);
+      if (!Number.isInteger(from) || from < 1) return;
+      const key = `user:${from}`;
+      // 优先用缓存
+      if (profileCacheRef.current.has(key)) {
+        const cached = profileCacheRef.current.get(key);
+        setAvatarProfile({ id: from, ...cached });
+        return;
+      }
+      // 无缓存：拉取
+      const prof = await fetchUserProfile(from);
+      if (prof) {
+        const meta = { name: prof.nickname || prof.username || `用户 ${from}`, avatar: prof.avatarUrl || '' };
+        profileCacheRef.current.set(key, meta);
+        setAvatarProfile({ id: from, ...meta });
+      } else {
+        setAvatarProfile({ id: from, name: `用户 ${from}`, avatar: '' });
+      }
+    },
+    [fetchUserProfile]
   );
 
   const nextMergedBatch = useCallback(
@@ -308,15 +339,47 @@ export default function ChatSection({ active }) {
     [myId, appendMsg, nextMessageId, recordLastMessage, sendMessage, resolveDisplayMeta]
   );
 
-  const quickReplies = useMemo(
-    () => [
-      { name: '在吗', code: 'hi' },
-      { name: '收到', code: 'ok' },
-      { name: '你好', code: 'hello' },
-    ],
-    []
-  );
+  // 图片/文件上传（预留接口，未来实现后端对接）
+  const handleImageSend = useCallback(async (file) => {
+    showNotice('图片上传', '图片上传功能即将上线');
+    return null;
+  }, [showNotice]);
 
+  const handleToolbarClick = useCallback((item) => {
+    if (item.type === 'image') {
+      // 触发隐藏的文件选择器
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = (e) => {
+        const file = e.target.files[0];
+        if (file) handleImageSend(file);
+      };
+      input.click();
+    } else if (item.type === 'file') {
+      showNotice('文件上传', '文件上传功能即将上线');
+    } else if (item.type === 'emoji') {
+      showNotice('表情', '表情功能即将上线');
+    } else if (item.type === 'sticker') {
+      showNotice('扩展功能', '扩展功能即将上线');
+    } else if (item.type === 'more') {
+      showNotice('更多功能', '更多功能即将上线');
+    } else if (item.type === 'chat') {
+      showNotice('聊天工具', '聊天工具即将上线');
+    }
+  }, [handleImageSend, showNotice]);
+
+  // 工具栏图标先保留界面入口，尚未完成的能力点击后提示用户。
+  const toolbar = useMemo(() => [
+    { type: 'emoji', img: TOOLBAR_ICONS.emoji, title: '表情' },
+    { type: 'sticker', img: TOOLBAR_ICONS.sticker, title: '扩展' },
+    { type: 'file', img: TOOLBAR_ICONS.file, title: '文件' },
+    { type: 'image', img: TOOLBAR_ICONS.screenshot, title: '截图' },
+    { type: 'more', img: TOOLBAR_ICONS.more, title: '更多' },
+    { type: 'chat', img: TOOLBAR_ICONS.chat, title: '聊天工具' },
+  ], []);
+
+  // 自定义消息渲染：支持头像点击
   const renderMessageContent = useCallback(
     (msg) => {
       if (msg.type === 'text') {
@@ -358,18 +421,43 @@ export default function ChatSection({ active }) {
   return (
     <div className="chat-module">
       <Chat
+        wideBreakpoint="0px"
         navbar={{ title, desc: connected ? '实时在线' : '连接中…', align: 'left' }}
         messages={messages}
         renderMessageContent={renderMessageContent}
         onSend={handleSend}
         onScroll={handleScroll}
-        placeholder="输入消息，Enter 发送，Shift + Enter 换行"
-        quickReplies={quickReplies}
-        onQuickReplyClick={(item) => handleSend('text', item.name)}
+        placeholder="输入消息..."
         isTyping={typing}
+        toolbar={toolbar}
+        onToolbarClick={handleToolbarClick}
+        onImageSend={handleImageSend}
       />
+
+      {/* 头像点击后显示的用户资料卡片 */}
+      {avatarProfile && (
+        <div className="avatar-profile-dialog" role="dialog" aria-modal="true">
+          <div className="avatar-profile-backdrop" onClick={() => setAvatarProfile(null)} />
+          <div className="avatar-profile-card">
+            {avatarProfile.avatar ? (
+              <img className="avatar-profile-img" src={avatarProfile.avatar} alt={avatarProfile.name} />
+            ) : (
+              <span className="avatar-profile-img avatar-profile-fallback">{initials(avatarProfile.name)}</span>
+            )}
+            <div className="avatar-profile-name">{avatarProfile.name}</div>
+            <div className="avatar-profile-id">ID {avatarProfile.id}</div>
+            <div className="avatar-profile-actions">
+              <button type="button" className="avatar-profile-btn" onClick={() => setAvatarProfile(null)}>关闭</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function initials(name) {
+  return String(name || '?').trim().slice(0, 2).toUpperCase();
 }
 
 function toChatUiMessages(list, myId, resolveDisplayMeta) {

@@ -19,7 +19,7 @@ void Register::registeUrl(m_sylar::http::HttpServer::ptr server) {
     }
     server->GET("/test", Register::test);
     server->GET("/registe/getRegCode", Register::coGetRegCode);
-    server->GET("/login/jwt", Register::coLogin);
+    server->POST("/login/jwt", Register::coLogin);
     server->POST("/registe/registe", Register::registe);
 }
 
@@ -250,11 +250,15 @@ m_sylar::Task<void> Register::coLogin(m_sylar::http::HttpSession::ptr session) {
         co_return;
     }
 
-    // 获取请求参数
-    std::string username = "username";              // 用户名
-    std::string password = "password";              // 明文密码 
-    username = req->getParam(username);
-    password = req->getParam(password);
+    // 获取请求参数 (body 中的 JSON)
+    nlohmann::json body;
+    try {
+        body = nlohmann::json::parse(req->getBody());
+    } catch (const std::exception& e) {
+        body = nlohmann::json::object();
+    }
+    std::string username = body.value("username", "");
+    std::string password = body.value("password", "");
 
 
     // std::string hashed_password, salt;
@@ -284,7 +288,7 @@ m_sylar::Task<void> Register::coLogin(m_sylar::http::HttpSession::ptr session) {
         j["error"] = "Invalid username or password";
         resp->appendHeader("Content-Type", "application/json");
         resp->setBody(j.dump());
-        resp->setStatus(http::StatusCode::internal_server_error);
+        resp->setStatus(http::StatusCode::ok);
         co_await session->co_sendResp();
         co_return;
     }

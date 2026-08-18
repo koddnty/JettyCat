@@ -17,6 +17,8 @@ const SYMBOLS = {
   user: '<circle cx="12" cy="8" r="3.6"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/>',
   spark: '<path d="M12 3v5M12 16v5M3 12h5M16 12h5M6.2 6.2 9.6 9.6M14.4 14.4l3.4 3.4M6.2 17.8l3.4-3.4M14.4 9.6l3.4-3.4"/>',
   more: '<circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
+  file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/>',
 };
 
 export function IconSprite() {

@@ -89,7 +89,7 @@ export default function LoginPage() {
     if (!validateLogin()) return;
     setBusy(true);
     try {
-      const data = await requestJson(API_URL, { username: username.trim(), password });
+      const data = await requestJson(API_URL, { username: username.trim(), password }, 'POST');
       if (data.status !== 'success') throw new Error(data.error || '登录失败，请检查用户名和密码');
       showAlert('登录成功，正在进入控制台...', 'success');
       window.setTimeout(() => navigate('/main'), 700);
