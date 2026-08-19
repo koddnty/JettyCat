@@ -92,6 +92,40 @@ Task<JettyCat::chat::DBState> FriendDao::userExists(const JettyCat::chat::userId
 }
 
 
+Task<JettyCat::chat::DBState> FriendDao::getUserIdByUsername(const std::string& username,
+                                                         JettyCat::chat::userId& user_id,
+                                                         bool& exists) const {
+    auto conn = m_db->borrowConn();
+    MySQLStmt<int64_t> stmt {conn};
+    const std::string sql = "select user_id from users where username = ?";
+
+    IOState state = IOState::TIMEOUT;
+    int count = 3;
+    while (state == IOState::TIMEOUT && count--) {
+        state = co_await stmt.co_execute(sql, username);
+    }
+    if (state != IOState::SUCCESS) {
+        co_return state == IOState::TIMEOUT ? JettyCat::chat::DBState::TIMEOUT
+                                            : JettyCat::chat::DBState::FAILED;
+    }
+    if (co_await stmt.co_storeAll() != IOState::SUCCESS) {
+        co_return JettyCat::chat::DBState::FAILED;
+    }
+    if (co_await stmt.co_fetchAll() != IOState::SUCCESS) {
+        co_return JettyCat::chat::DBState::FAILED;
+    }
+
+    auto rows = stmt.getResult().getAll();
+    if (rows.empty()) {
+        exists = false;
+        co_return JettyCat::chat::DBState::SUCCESS;
+    }
+    exists = true;
+    user_id = std::get<0>(rows.front());
+    co_return JettyCat::chat::DBState::SUCCESS;
+}
+
+
 Task<JettyCat::chat::DBState> FriendDao::listFriends(const JettyCat::chat::userId self_id,
                                                  nlohmann::json& friends_out) const {
     // user_friend 表约束 user_id < friend_id，因此双向查询

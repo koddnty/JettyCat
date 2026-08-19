@@ -177,11 +177,14 @@ export function ChatProvider({ children }) {
 
   // 查询某个用户的公开信息(昵称/头像/用户名/ID)，用于非好友的陌生用户资料展示。
   // 返回 { id, username, nickname, avatarUrl }；失败时返回 null。
-  const fetchUserProfile = useCallback(async (userId) => {
-    const id = String(userId).trim();
-    if (!/^\d+$/.test(id)) return null;
+  // 查询某个用户的公开信息(昵称/头像/用户名/ID)。支持按 user_id 或按账号(用户名)查询。
+  // 返回 { id, username, nickname, avatarUrl }；失败时返回 null。
+  const fetchUserProfile = useCallback(async (userKey) => {
+    const key = String(userKey == null ? '' : userKey).trim();
+    if (!key) return null;
+    const param = /^\d+$/.test(key) ? `userId=${encodeURIComponent(key)}` : `username=${encodeURIComponent(key)}`;
     try {
-      const response = await fetch(`/api/chat/user_profile?userId=${encodeURIComponent(id)}`, { credentials: 'include' });
+      const response = await fetch(`/api/chat/user_profile?${param}`, { credentials: 'include' });
       const data = await response.json();
       const u = data && data.code === 200 && data.data && data.data.user;
       if (!u) return null;
@@ -285,8 +288,8 @@ export function ChatProvider({ children }) {
     [refreshLists]
   );
 
-  const addFriend = useCallback((friendId) => apiMutation('/api/chat/add_friend', { friendId }), [apiMutation]);
-  const removeFriend = useCallback((friendId) => apiMutation('/api/chat/remove_friend', { friendId }), [apiMutation]);
+  const addFriend = useCallback((username) => apiMutation('/api/chat/add_friend', { username }), [apiMutation]);
+  const removeFriend = useCallback((username) => apiMutation('/api/chat/remove_friend', { username }), [apiMutation]);
   const addGroup = useCallback((groupId) => apiMutation('/api/chat/add_group', { groupId }), [apiMutation]);
   const removeGroup = useCallback((groupId) => apiMutation('/api/chat/remove_group', { groupId }), [apiMutation]);
 

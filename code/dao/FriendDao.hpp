@@ -32,6 +32,14 @@ public:
                                                   bool& exists) const;
 
     /**
+     * @brief 按账号(用户名)查询用户 id
+     * @param exists 输出：true=存在，false=不存在（仅在返回 SUCCESS 时有效）
+     */
+    [[nodiscard]] Task<JettyCat::chat::DBState> getUserIdByUsername(const std::string& username,
+                                                           JettyCat::chat::userId& user_id,
+                                                           bool& exists) const;
+
+    /**
      * @brief 查询好友列表（双向 union，满足 user_id < friend_id 约束）
      * @param friends_out 输出：好友数组，每项含 friend_id/username/nickname/avatar_url
      */

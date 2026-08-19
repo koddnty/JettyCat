@@ -319,11 +319,14 @@ Task<void> co_GetUserProfile(http::HttpSession::ptr session) {
         co_return;
     }
 
-    // 协议层职责：取参数
-    std::string user_id_str = req->getParam("userId");
+    // 协议层职责：取参数 (兼容按 user_id 或按账号 username 查询)
+    std::string user_key = req->getParam("userId");
+    if (user_key.empty()) {
+        user_key = req->getParam("username");
+    }
 
     // 业务逻辑交给 service
-    const auto result = co_await getFriendService().getPublicProfile(user_id_str);
+    const auto result = co_await getFriendService().getPublicProfile(user_key);
 
     if (!result.isOk()) {
         M_SYLAR_LOG_WARN(g_logger) << "co_GetUserProfile, business failed: " << result.getMsg();
@@ -363,10 +366,10 @@ Task<void> co_AddFriend(http::HttpSession::ptr session) {
     } catch (const std::exception&) {
         body = nlohmann::json::object();
     }
-    std::string friend_id_str = jsonFieldToString(body, "friendId");
+    std::string username = jsonFieldToString(body, "username");
 
     // 业务逻辑交给 service
-    const auto result = co_await getFriendService().addFriend(user_id, friend_id_str);
+    const auto result = co_await getFriendService().addFriend(user_id, username);
 
     if (!result.isOk()) {
         M_SYLAR_LOG_WARN(g_logger) << "co_AddFriend, business failed: " << result.getMsg();
@@ -406,10 +409,10 @@ Task<void> co_RemoveFriend(http::HttpSession::ptr session) {
     } catch (const std::exception&) {
         body = nlohmann::json::object();
     }
-    std::string friend_id_str = jsonFieldToString(body, "friendId");
+    std::string username = jsonFieldToString(body, "username");
 
     // 执行
-    const auto result = co_await getFriendService().removeFriend(user_id, friend_id_str);
+    const auto result = co_await getFriendService().removeFriend(user_id, username);
 
     // 响应构建
     if (!result.isOk()) {

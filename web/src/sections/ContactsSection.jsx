@@ -19,7 +19,8 @@ export default function ContactsSection({ onOpenChat }) {
 
   const save = async () => {
     const raw = String(id || '').trim();
-    if (!/^\d+$/.test(raw)) return;
+    if (mode === 'group' && !/^\d+$/.test(raw)) return;
+    if (mode === 'friend' && !/^[A-Za-z0-9]+$/.test(raw)) return;
     setBusy(true);
     try {
       const value = mode === 'group' ? Number(raw) : raw;
@@ -41,7 +42,7 @@ export default function ContactsSection({ onOpenChat }) {
   const remove = async (item) => {
     const label = item.kind === 'group' ? `退出群聊「${item.name}」?` : `删除好友「${item.name}」?`;
     if (!window.confirm(label)) return;
-    const result = item.kind === 'group' ? await removeGroup(item.id) : await removeFriend(item.id);
+    const result = item.kind === 'group' ? await removeGroup(item.id) : await removeFriend(item.username);
     if (!result || result.code !== 200) {
       showNotice(item.kind === 'group' ? '退出群聊' : '删除好友', (result && result.msg) || '操作失败, 请稍后重试');
     }
@@ -127,8 +128,8 @@ export default function ContactsSection({ onOpenChat }) {
           <p className="eyebrow">New contact</p>
           <h2>{mode === 'group' ? '加入群聊' : '添加好友'}</h2>
           <label>
-            {mode === 'group' ? '群聊 ID' : '用户 ID'}
-            <input type="text" inputMode="numeric" placeholder={mode === 'group' ? '例如 1' : '例如 123456789012345678'} value={id} onChange={(e) => setId(e.target.value)} autoFocus />
+            {mode === 'group' ? '群聊 ID' : '用户名(账号)'}
+            <input type="text" inputMode={mode === 'group' ? 'numeric' : 'text'} placeholder={mode === 'group' ? '例如 1' : '例如 tom'} value={id} onChange={(e) => setId(e.target.value)} autoFocus />
           </label>
           <div className="dialog-actions">
             <button className="button secondary" type="button" onClick={() => setOpen(false)}>取消</button>

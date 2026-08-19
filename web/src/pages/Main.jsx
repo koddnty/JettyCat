@@ -82,7 +82,11 @@ export default function MainPage() {
 
   const submitAdd = async () => {
     const raw = String(newTargetId || '').trim();
-    if (!/^\d+$/.test(raw)) return;
+    if (addMode === 'group') {
+      if (!/^\d+$/.test(raw)) return;
+    } else {
+      if (!/^[A-Za-z0-9]+$/.test(raw)) return;
+    }
     setAddBusy(true);
     try {
       const value = addMode === 'group' ? Number(raw) : raw;
@@ -93,7 +97,12 @@ export default function MainPage() {
       }
       setAddOpen(false);
       setNewTargetId('');
-      setActiveConversation({ kind: addMode === 'group' ? 'group' : 'user', id: value });
+      if (addMode === 'friend') {
+        const prof = await fetchUserProfile(raw);
+        if (prof) setActiveConversation({ kind: 'user', id: prof.id, name: prof.nickname || prof.username });
+      } else {
+        setActiveConversation({ kind: 'group', id: value });
+      }
       if (window.innerWidth <= 820) setSidebarOpen(false);
     } finally {
       setAddBusy(false);
@@ -103,7 +112,7 @@ export default function MainPage() {
   const handleRemove = async (item) => {
     const label = item.kind === 'group' ? `退出群聊「${item.name}」?` : `删除好友「${item.name}」?`;
     if (!window.confirm(label)) return;
-    const result = item.kind === 'group' ? await removeGroup(item.id) : await removeFriend(item.id);
+    const result = item.kind === 'group' ? await removeGroup(item.id) : await removeFriend(item.username);
     if (!result || result.code !== 200) {
       showNotice(item.kind === 'group' ? '退出群聊' : '删除好友', (result && result.msg) || '操作失败, 请稍后重试');
       return;
@@ -244,11 +253,11 @@ export default function MainPage() {
               </button>
             </div>
             <label>
-              {addMode === 'group' ? '群聊 ID' : '用户 ID'}
+              {addMode === 'group' ? '群聊 ID' : '用户名(账号)'}
               <input
                 type="text"
-                inputMode="numeric"
-                placeholder={addMode === 'group' ? '例如 1' : '例如 123456789012345678'}
+                inputMode={addMode === 'group' ? 'numeric' : 'text'}
+                placeholder={addMode === 'group' ? '例如 1' : '例如 tom'}
                 value={newTargetId}
                 onChange={(e) => setNewTargetId(e.target.value)}
                 autoFocus
