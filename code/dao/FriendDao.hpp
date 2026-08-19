@@ -32,12 +32,12 @@ public:
                                                   bool& exists) const;
 
     /**
-     * @brief 按账号(用户名)查询用户 id
+     * @brief 按对外账号(users.user_id)查询对内路由 id(users.user_snow_id)
      * @param exists 输出：true=存在，false=不存在（仅在返回 SUCCESS 时有效）
      */
-    [[nodiscard]] Task<JettyCat::chat::DBState> getUserIdByUsername(const std::string& username,
-                                                           JettyCat::chat::userId& user_id,
-                                                           bool& exists) const;
+    [[nodiscard]] Task<JettyCat::chat::DBState> getUserSnowIdByUserId(const std::string& user_id,
+                                                            JettyCat::chat::userId& snow_id,
+                                                            bool& exists) const;
 
     /**
      * @brief 查询好友列表（双向 union，满足 user_id < friend_id 约束）

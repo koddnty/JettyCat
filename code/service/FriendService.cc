@@ -18,7 +18,7 @@ namespace chatter::service {
     // ---------- 按账号(用户名)查找目标用户 ----------
     JettyCat::chat::userId friend_id = 0;
     bool exists = false;
-    switch (co_await m_friend_dao->getUserIdByUsername(username_str, friend_id, exists)) {
+    switch (co_await m_friend_dao->getUserSnowIdByUserId(username_str, friend_id, exists)) {
     case JettyCat::chat::DBState::SUCCESS:
         break;
     case JettyCat::chat::DBState::TIMEOUT:
@@ -66,7 +66,7 @@ namespace chatter::service {
     // ---------- 按账号(用户名)查找目标用户 ----------
     JettyCat::chat::userId friend_id = 0;
     bool exists = false;
-    switch (co_await m_friend_dao->getUserIdByUsername(username_str, friend_id, exists)) {
+    switch (co_await m_friend_dao->getUserSnowIdByUserId(username_str, friend_id, exists)) {
     case JettyCat::chat::DBState::SUCCESS:
         break;
     case JettyCat::chat::DBState::TIMEOUT:
@@ -164,7 +164,7 @@ namespace chatter::service {
         }
     } else {
         // 按用户名查询
-        switch (co_await m_friend_dao->getUserIdByUsername(user_id_str, user_id, exists)) {
+        switch (co_await m_friend_dao->getUserSnowIdByUserId(user_id_str, user_id, exists)) {
         case JettyCat::chat::DBState::SUCCESS:
             break;
         case JettyCat::chat::DBState::TIMEOUT:

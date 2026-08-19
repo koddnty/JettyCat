@@ -15,8 +15,8 @@
  */
 
 namespace JettyCat::chat {
-using groupId = int;        // 群聊id
-using userId = int64_t;     // 用户id (snowflake生成, 超出int范围)
+using groupId = int64_t;    // 群聊对内snow id (group_snow_id)
+using userId = int64_t;     // 用户对内snow id (user_snow_id)
 
 
 // 消息

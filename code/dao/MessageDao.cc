@@ -6,9 +6,9 @@ Task<JettyCat::chat::DBState> MessageDao::fetchFromInbox(
     const JettyCat::chat::userId sender_id, const JettyCat::chat::userId receiver_id,
     const size_t offset, JettyCat::chat::MessageList& message_list) const {
     const std::string sql =
-        "select sender_id, msg_type, content, UNIX_TIMESTAMP(send_time) "
+        "select sender_snow_id, msg_type, content, UNIX_TIMESTAMP(send_time) "
         "from user_message "
-        "where user_message.sender_id = ? and user_message.receiver_id = ? "
+        "where user_message.sender_snow_id = ? and user_message.receiver_snow_id = ? "
         "order by user_message.send_time desc limit 10 offset ?";
 
     auto conn = m_db->borrowConn();
@@ -46,9 +46,9 @@ Task<JettyCat::chat::DBState> MessageDao::fetchFromGroup(
     const JettyCat::chat::groupId group_id, const size_t offset,
     JettyCat::chat::MessageList& message_list) const {
     const std::string sql =
-        "select user_id, msg_type, content, UNIX_TIMESTAMP(send_time) "
+        "select user_snow_id, msg_type, content, UNIX_TIMESTAMP(send_time) "
         "from group_message "
-        "where group_message.group_id = ? "
+        "where group_message.group_snow_id = ? "
         "order by group_message.send_time desc limit 10 offset ?";
 
     auto conn = m_db->borrowConn();

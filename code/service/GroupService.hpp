@@ -15,13 +15,15 @@ public:
         : m_group_dao(std::move(group_dao)) {}
 
     /**
-     * @brief 加入群聊（校验 groupId + 校验目标群聊存在 + 写入）
+     * @brief 加入群聊（按对外 group_id 查询群组, 得到对内 group_snow_id 后写入）
+     * @param self_id 当前登录用户的 user_snow_id (来自 JWT)
+     * @param group_id_str 前端传的对外 "groupId" 字段(原始字符串)
      */
     [[nodiscard]] Task<resp::HttpResponse> addGroup(
                          JettyCat::chat::userId self_id, const std::string& group_id_str) const;
 
     /**
-     * @brief 退出群聊
+     * @brief 退出群聊（按对外 group_id 定位群组）
      */
     [[nodiscard]] Task<resp::HttpResponse> removeGroup(
                          JettyCat::chat::userId self_id, const std::string& group_id_str) const;

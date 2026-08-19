@@ -76,7 +76,7 @@ int Message::load(const std::string& raw_json) {
 
 
 m_sylar::Task<DBState> sendToUser(const userId& user_id, const MessageList& message_list) {
-    const std::string sql = "insert into user_message (sender_id, receiver_id, content, extra) values (?, ?, ?, ?)";
+    const std::string sql = "insert into user_message (sender_snow_id, receiver_snow_id, content, extra) values (?, ?, ?, ?)";
     const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
     MySQLStmt stmt {conn_wrap};
     for (auto& msg_it : message_list) {
@@ -104,7 +104,7 @@ m_sylar::Task<DBState> sendToUser(const userId& user_id, const MessageList& mess
 
 
 m_sylar::Task<DBState> sendToGroup(const groupId& group_id, const MessageList& message_list) {
-    const std::string sql = "insert into group_message (user_id, group_id, content, extra) values (?, ?, ?, ?)";
+    const std::string sql = "insert into group_message (user_snow_id, group_snow_id, content, extra) values (?, ?, ?, ?)";
     const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
     MySQLStmt stmt {conn_wrap};
     for (auto& msg_it : message_list) {
@@ -132,7 +132,7 @@ m_sylar::Task<DBState> sendToGroup(const groupId& group_id, const MessageList& m
 
 
 m_sylar::Task<DBState> fetchFromGroup(const groupId& group_id, size_t offset, MessageList& message_list) {
-    const std::string sql = "select user_id, msg_type, content, UNIX_TIMESTAMP(send_time) from group_message where group_message.group_id = ? order by group_message.send_time desc limit 10 offset ?";
+    const std::string sql = "select user_snow_id, msg_type, content, UNIX_TIMESTAMP(send_time) from group_message where group_message.group_snow_id = ? order by group_message.send_time desc limit 10 offset ?";
     const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
     MySQLStmt<int64_t, STMT_Text<36>, STMT_Text<2048>, uint64_t> stmt {conn_wrap};
 
@@ -177,7 +177,7 @@ m_sylar::Task<DBState> fetchFromGroup(const groupId& group_id, size_t offset, Me
 }
 
 m_sylar::Task<DBState> fetchFromInbox(const userId& sender_id, const userId& receiver_id, size_t offset, MessageList& message_list) {
-    const std::string sql = "select sender_id, msg_type, content, UNIX_TIMESTAMP(send_time) from user_message where user_message.sender_id = ? and user_message.receiver_id = ? order by user_message.send_time desc limit 10 offset ?";
+    const std::string sql = "select sender_snow_id, msg_type, content, UNIX_TIMESTAMP(send_time) from user_message where user_message.sender_snow_id = ? and user_message.receiver_snow_id = ? order by user_message.send_time desc limit 10 offset ?";
     const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
     MySQLStmt<int64_t, STMT_Text<36>, STMT_Text<2048>, uint64_t> stmt {conn_wrap};
 

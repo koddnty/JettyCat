@@ -2,17 +2,14 @@
 #include <cstdlib>
 #include <ctime>
 #include <regex>
-#include <sylar/tools/Snowflake.hpp>
 
 #include "chat/Message.hpp"
 
 static m_sylar::Logger::ptr j_logger = M_SYLAR_LOG_NAME("jettyCat");
 using namespace m_sylar;
 
-// 用户id生成器: 框架提供的snowflake生成器(时间戳+机器号+序列号), 保证全局唯一且趋势递增
-static m_sylar::Snowflake<1288834974657> g_user_id_generator;
-
-// username 只能由英文字母和数字组成
+// user_snow_id 由数据库自增生成(对内路由id), 注册后通过 LAST_INSERT_ID() 取回;
+// user_id 为对外暴露的账号(仅限英文字母和数字), user_name 为昵称。
 static bool isValidUsername(const std::string& username) {
     static const std::regex username_regex("^[A-Za-z0-9]+$");
     return std::regex_match(username, username_regex);
@@ -212,19 +209,14 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
     }
     // std::string password_hash = hashed_password; // 存储哈希值，盐单独存储
 
-    // 使用 snowflake 生成器生成用户id
-    const JettyCat::chat::userId user_id = g_user_id_generator.nextid();
-    M_SYLAR_LOG_INFO(j_logger) << "register user: " << username << ", nickname: " << nickname
-                               << ", user_id: " << user_id;
-
-    // 插入
-    const std::string insert_user_query = "INSERT INTO users (user_id, username, nickname, password_hash, role) VALUES (?, ?, ?, ?, 'user')";
+    // 插入用户 (user_snow_id 由数据库自增生成)
+    const std::string insert_user_query = "INSERT INTO users (user_id, user_name, password_hash, role) VALUES (?, ?, ?, 'user')";
     const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
     MySQLStmt stmt {conn_wrap};
     IOState state = IOState::TIMEOUT;
     int count = 3;
     while (state == IOState::TIMEOUT && count--) {
-        state = co_await stmt.co_execute(insert_user_query, user_id, username, nickname, hashed_password);
+        state = co_await stmt.co_execute(insert_user_query, username, nickname, hashed_password);
     }
 
     if(state != IOState::SUCCESS) {
@@ -235,7 +227,7 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
             resp->setStatus(http::StatusCode::internal_server_error);
         } else {
             j["status"] = "failed";
-            j["error"] = "Failed to register user, possibly due to duplicate username";
+            j["error"] = "Failed to register user, possibly due to duplicate user_id";
             resp->setStatus(http::StatusCode::internal_server_error);
         }
         resp->appendHeader("Content-Type", "application/json");
@@ -244,8 +236,40 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
         co_return;
     }
 
+    // 取回自增生成的 user_snow_id (同一连接上的 LAST_INSERT_ID)
+    JettyCat::chat::userId user_snow_id = -1;
+    {
+        MySQLStmt<int64_t> id_stmt {conn_wrap};
+        IOState id_state = IOState::TIMEOUT;
+        int id_count = 3;
+        while (id_state == IOState::TIMEOUT && id_count--) {
+            id_state = co_await id_stmt.co_execute("SELECT LAST_INSERT_ID()");
+        }
+        if (id_state == IOState::SUCCESS &&
+            IOState::SUCCESS == co_await id_stmt.co_storeAll() &&
+            IOState::SUCCESS == co_await id_stmt.co_fetchAll()) {
+            auto rows = id_stmt.getResult().getAll();
+            if (!rows.empty()) {
+                user_snow_id = std::get<0>(rows.front());
+            }
+        }
+    }
+    if (user_snow_id <= 0) {
+        M_SYLAR_LOG_ERROR(j_logger) << "failed to obtain user_snow_id after insert, username=" << username;
+        nlohmann::json j;
+        j["status"] = "error";
+        j["error"] = "Internal Server Error";
+        resp->appendHeader("Content-Type", "application/json");
+        resp->setBody(j.dump());
+        resp->setStatus(http::StatusCode::internal_server_error);
+        co_await session->co_sendResp();
+        co_return;
+    }
+    M_SYLAR_LOG_INFO(j_logger) << "register user: " << username << ", nickname: " << nickname
+                               << ", user_snow_id: " << user_snow_id;
+
     // 构建jwt并响应
-    std::string jwt = JWT::generateJWT(username, nickname, RolePermissions::USER, user_id);
+    std::string jwt = JWT::generateJWT(username, nickname, RolePermissions::USER, user_snow_id);
     nlohmann::json j;
     j["status"] = "success";
 
@@ -287,11 +311,11 @@ m_sylar::Task<void> Register::coLogin(m_sylar::http::HttpSession::ptr session) {
     // // std::string password_hash = hashed_password + "," + salt; // 存储哈希值，盐单独存储
     // std::string password_hash = Encode::base64Encode(hashed_password) + "," + Encode::base64Encode(salt);
 
-    // 密码、角色查询
+    // 密码、角色查询 (对外账号是 users.user_id, 对内路由id是 user_snow_id, 昵称是 user_name)
     IOState state = IOState::SUCCESS;
     auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
     MySQLStmt<STMT_Text<16>, STMT_Text<255>, int64_t, STMT_Text<100>> stmt{conn_wrap};
-    std::string get_role_query = "SELECT role, password_hash, user_id, nickname FROM users WHERE username= ? ;";
+    std::string get_role_query = "SELECT role, password_hash, user_snow_id, user_name FROM users WHERE user_id = ? ;";
     state = co_await stmt.co_execute(get_role_query, username);
     state = co_await stmt.co_storeAll();
     state = co_await stmt.co_fetchAll();
@@ -311,7 +335,7 @@ m_sylar::Task<void> Register::coLogin(m_sylar::http::HttpSession::ptr session) {
     }
     const std::string role_val = std::get<0>(result[0]).toString();
     const std::string stored_password_hash = std::get<1>(result[0]).toString();
-    const JettyCat::chat::userId user_id = std::get<2>(result[0]);
+    const JettyCat::chat::userId user_snow_id = std::get<2>(result[0]);
     const std::string nickname = std::get<3>(result[0]).toString();
 
 
@@ -329,7 +353,7 @@ m_sylar::Task<void> Register::coLogin(m_sylar::http::HttpSession::ptr session) {
     // M_SYLAR_LOG_INFO(j_logger) << "user " << username << " login with role " << role_val;
     nlohmann::json j;
     j["status"] = "success";
-    std::string jwt = JWT::generateJWT(username, nickname, RolePermissions::RoleFromString(role_val), user_id);
+    std::string jwt = JWT::generateJWT(username, nickname, RolePermissions::RoleFromString(role_val), user_snow_id);
     std::string cookie = "jwttoken=" + jwt + "; HttpOnly; SameSite=Strict; Path=/";
     resp->appendHeader("Content-Type", "application/json");
     resp->appendHeader("Set-Cookie", cookie);

@@ -15,11 +15,21 @@ public:
     explicit GroupDao(std::shared_ptr<DbProvider> db) : m_db(std::move(db)) {}
 
     /**
-     * @brief 判断群组是否存在
+     * @brief 判断群组是否存在（按对内 group_snow_id）
      * @param exists 输出：true=存在，false=不存在（仅在返回 SUCCESS 时有效）
      */
     [[nodiscard]] Task<JettyCat::chat::DBState> groupExists(JettyCat::chat::groupId group_id,
                                                    bool& exists) const;
+
+    /**
+     * @brief 按对外 group_id 查询群组，得到对内 group_snow_id 与群名
+     * @param group_id 对外暴露的群聊id
+     * @param group_snow_id 输出：对内路由用的群组snow id
+     * @param exists 输出：群组是否存在
+     */
+    [[nodiscard]] Task<JettyCat::chat::DBState> getGroupByGroupId(
+        JettyCat::chat::groupId group_id, JettyCat::chat::groupId& group_snow_id,
+        std::string& group_name, bool& exists) const;
 
     /**
      * @brief 加入群聊（已存在则刷新加入时间）
@@ -35,15 +45,15 @@ public:
 
     /**
      * @brief 查询加入的群聊列表
-     * @param groups_out 输出：群聊数组，每项含 group_id/group_name/identity/join_time
+     * @param groups_out 输出：群聊数组，每项含 group_snow_id/group_id/group_name/identity/join_time
      */
     [[nodiscard]] Task<JettyCat::chat::DBState> listGroups(JettyCat::chat::userId user_id,
                                                   nlohmann::json& groups_out) const;
 
     /**
-     * @brief 查询用户加入的所有群 group_id 列表（轻量，仅 group_id）
+     * @brief 查询用户加入的所有群 group_snow_id 列表（轻量，仅 group_snow_id）
      *        用于 WS 上线时批量把用户登记进群聊在线集合
-     * @param group_ids_out 输出：群 id 列表
+     * @param group_ids_out 输出：群组 snow id 列表
      */
     [[nodiscard]] Task<JettyCat::chat::DBState> listJoinedGroupIds(
         JettyCat::chat::userId user_id,

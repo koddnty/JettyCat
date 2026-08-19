@@ -32,7 +32,11 @@ export default function ContactsSection({ onOpenChat }) {
       setOpen(false);
       setId('');
       if (mode === 'group') {
-        onOpenChat({ kind: 'group', id: value });
+        onOpenChat({
+          kind: 'group',
+          id: String((result && result.data && result.data.group_snow_id) || value),
+          name: (result && result.data && result.data.group_name) || `群组 ${value}`,
+        });
       }
     } finally {
       setBusy(false);
@@ -42,7 +46,7 @@ export default function ContactsSection({ onOpenChat }) {
   const remove = async (item) => {
     const label = item.kind === 'group' ? `退出群聊「${item.name}」?` : `删除好友「${item.name}」?`;
     if (!window.confirm(label)) return;
-    const result = item.kind === 'group' ? await removeGroup(item.id) : await removeFriend(item.username);
+    const result = item.kind === 'group' ? await removeGroup(item.groupId) : await removeFriend(item.username);
     if (!result || result.code !== 200) {
       showNotice(item.kind === 'group' ? '退出群聊' : '删除好友', (result && result.msg) || '操作失败, 请稍后重试');
     }

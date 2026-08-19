@@ -235,12 +235,13 @@ export function ChatProvider({ children }) {
       });
     }
     for (const group of groups) {
-      const id = Number(group.group_id);
+      const id = String(group.group_snow_id);
       if (!id) continue;
       conversations.push({
         kind: 'group',
-        id,
-        name: group.group_name || `群组 ${id}`,
+        id, // 对内 group_snow_id, 用于消息路由
+        groupId: group.group_id, // 对外 group_id, 用于加入/退出
+        name: group.group_name || `群组 ${group.group_id || id}`,
         identity: group.identity || 'member',
         joinTime: Number(group.join_time) || 0,
       });

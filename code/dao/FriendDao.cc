@@ -6,8 +6,7 @@ namespace chatter::dao {
 
 Task<JettyCat::chat::DBState> FriendDao::removeFriend(const JettyCat::chat::userId self_id,
                                                   const JettyCat::chat::userId friend_id) const {
-    // user_friend 表有 CHECK 约束 user_id < friend_id，所以写入前排序。
-    // 这条 SQL 层规则属于 DAO 的职责，从原来散落在 handler 里挪到这里。
+    // user_friend 表历史上有 CHECK 约束 user_snow_id < friend_snow_id，写入前排序以保证兼容。
     auto min_id = std::min(self_id, friend_id);
     auto max_id = std::max(self_id, friend_id);
 
@@ -15,7 +14,7 @@ Task<JettyCat::chat::DBState> FriendDao::removeFriend(const JettyCat::chat::user
     MySQLStmt stmt {conn};
     const std::string sql =
         "update user_friend set status = 0 "
-        "where user_id = ? and friend_id = ?";
+        "where user_snow_id = ? and friend_snow_id = ?";
 
     // retry 循环（沿用原 3 次重试语义）
     IOState state = IOState::TIMEOUT;
@@ -37,14 +36,14 @@ Task<JettyCat::chat::DBState> FriendDao::removeFriend(const JettyCat::chat::user
 
 Task<JettyCat::chat::DBState> FriendDao::addFriend(const JettyCat::chat::userId self_id,
                                                const JettyCat::chat::userId friend_id) const {
-    // CHECK 约束 user_id < friend_id，排序后写入（与 removeFriend 一致）
+    // 兼容历史 CHECK 约束 user_snow_id < friend_snow_id，排序后写入（与 removeFriend 一致）
     auto min_id = std::min(self_id, friend_id);
     auto max_id = std::max(self_id, friend_id);
 
     auto conn = m_db->borrowConn();
     MySQLStmt stmt {conn};
     const std::string sql =
-        "insert into user_friend (user_id, friend_id, status) "
+        "insert into user_friend (user_snow_id, friend_snow_id, status) "
         "values (?, ?, 1) "
         "on duplicate key update status = 1";
 
@@ -69,7 +68,7 @@ Task<JettyCat::chat::DBState> FriendDao::userExists(const JettyCat::chat::userId
                                                 bool& exists) const {
     auto conn = m_db->borrowConn();
     MySQLStmt<int64_t> stmt {conn};
-    const std::string sql = "select user_id from users where user_id = ?";
+    const std::string sql = "select user_snow_id from users where user_snow_id = ?";
 
     IOState state = IOState::TIMEOUT;
     int count = 3;
@@ -92,17 +91,18 @@ Task<JettyCat::chat::DBState> FriendDao::userExists(const JettyCat::chat::userId
 }
 
 
-Task<JettyCat::chat::DBState> FriendDao::getUserIdByUsername(const std::string& username,
-                                                         JettyCat::chat::userId& user_id,
+Task<JettyCat::chat::DBState> FriendDao::getUserSnowIdByUserId(const std::string& user_id,
+                                                         JettyCat::chat::userId& snow_id,
                                                          bool& exists) const {
     auto conn = m_db->borrowConn();
     MySQLStmt<int64_t> stmt {conn};
-    const std::string sql = "select user_id from users where username = ?";
+    // 对外的 user_id 即账号列, 对内路由使用 user_snow_id
+    const std::string sql = "select user_snow_id from users where user_id = ?";
 
     IOState state = IOState::TIMEOUT;
     int count = 3;
     while (state == IOState::TIMEOUT && count--) {
-        state = co_await stmt.co_execute(sql, username);
+        state = co_await stmt.co_execute(sql, user_id);
     }
     if (state != IOState::SUCCESS) {
         co_return state == IOState::TIMEOUT ? JettyCat::chat::DBState::TIMEOUT
@@ -121,24 +121,24 @@ Task<JettyCat::chat::DBState> FriendDao::getUserIdByUsername(const std::string& 
         co_return JettyCat::chat::DBState::SUCCESS;
     }
     exists = true;
-    user_id = std::get<0>(rows.front());
+    snow_id = std::get<0>(rows.front());
     co_return JettyCat::chat::DBState::SUCCESS;
 }
 
 
 Task<JettyCat::chat::DBState> FriendDao::listFriends(const JettyCat::chat::userId self_id,
                                                  nlohmann::json& friends_out) const {
-    // user_friend 表约束 user_id < friend_id，因此双向查询
+    // user_friend 表历史约束 user_snow_id < friend_snow_id，因此双向查询
     const std::string sql =
-        "select u.user_id, u.username, u.nickname, u.avatar_url "
+        "select u.user_snow_id, u.user_id, u.user_name, u.avatar_url "
         "from user_friend f "
-        "join users u on u.user_id = f.friend_id "
-        "where f.user_id = ? and f.status = 1 "
+        "join users u on u.user_snow_id = f.friend_snow_id "
+        "where f.user_snow_id = ? and f.status = 1 "
         "union "
-        "select u.user_id, u.username, u.nickname, u.avatar_url "
+        "select u.user_snow_id, u.user_id, u.user_name, u.avatar_url "
         "from user_friend f "
-        "join users u on u.user_id = f.user_id "
-        "where f.friend_id = ? and f.status = 1";
+        "join users u on u.user_snow_id = f.user_snow_id "
+        "where f.friend_snow_id = ? and f.status = 1";
 
     auto conn = m_db->borrowConn();
     MySQLStmt<int64_t, STMT_Text<50>, STMT_Text<100>, STMT_Text<500>> stmt {conn};
@@ -162,9 +162,9 @@ Task<JettyCat::chat::DBState> FriendDao::listFriends(const JettyCat::chat::userI
     nlohmann::json friends = nlohmann::json::array();
     for (auto result = stmt.getResult().getAll(); auto& it : result) {
         nlohmann::json friend_json;
-        friend_json["friend_id"]  = std::to_string(std::get<0>(it)); // user_id 为 snowflake 大整数, 以字符串传输避免精度丢失
-        friend_json["username"]   = std::get<1>(it).toString();
-        friend_json["nickname"]   = std::get<2>(it).toString();
+        friend_json["friend_id"]  = std::to_string(std::get<0>(it)); // 对内 user_snow_id, 以字符串传输避免精度丢失
+        friend_json["username"]   = std::get<1>(it).toString();     // 对外 user_id(账号)
+        friend_json["nickname"]   = std::get<2>(it).toString();     // user_name(昵称)
         friend_json["avatar_url"] = std::get<3>(it).toString();
         friends.push_back(friend_json);
     }
@@ -176,7 +176,7 @@ Task<JettyCat::chat::DBState> FriendDao::listFriends(const JettyCat::chat::userI
 Task<JettyCat::chat::DBState> FriendDao::getPublicProfile(const JettyCat::chat::userId user_id,
                                                        bool& exists, nlohmann::json& profile_out) const {
     const std::string sql =
-        "select u.user_id, u.username, u.nickname, u.avatar from users u where u.user_id = ?";
+        "select u.user_snow_id, u.user_id, u.user_name, u.avatar from users u where u.user_snow_id = ?";
 
     auto conn = m_db->borrowConn();
     MySQLStmt<int64_t, STMT_Text<50>, STMT_Text<100>, STMT_Text<500>> stmt {conn};
@@ -207,9 +207,9 @@ Task<JettyCat::chat::DBState> FriendDao::getPublicProfile(const JettyCat::chat::
     nlohmann::json profile;
     {
         auto& row = rows.front();
-        profile["user_id"]    = std::to_string(std::get<0>(row)); // user_id 为 snowflake 大整数, 以字符串传输避免精度丢失
-        profile["username"]   = std::get<1>(row).toString();
-        profile["nickname"]   = std::get<2>(row).toString();
+        profile["user_id"]    = std::to_string(std::get<0>(row)); // 对内 user_snow_id, 以字符串传输避免精度丢失
+        profile["username"]   = std::get<1>(row).toString();      // 对外 user_id(账号)
+        profile["nickname"]   = std::get<2>(row).toString();      // user_name(昵称)
         profile["avatar_url"] = std::get<3>(row).toString();
     }
     profile_out = std::move(profile);
