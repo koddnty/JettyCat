@@ -1,11 +1,22 @@
 #include "register.hpp"
 #include <cstdlib>
 #include <ctime>
+#include <regex>
+#include <sylar/tools/Snowflake.hpp>
 
 #include "chat/Message.hpp"
 
 static m_sylar::Logger::ptr j_logger = M_SYLAR_LOG_NAME("jettyCat");
 using namespace m_sylar;
+
+// 用户id生成器: 框架提供的snowflake生成器(时间戳+机器号+序列号), 保证全局唯一且趋势递增
+static m_sylar::Snowflake<1288834974657> g_user_id_generator;
+
+// username 只能由英文字母和数字组成
+static bool isValidUsername(const std::string& username) {
+    static const std::regex username_regex("^[A-Za-z0-9]+$");
+    return std::regex_match(username, username_regex);
+}
 
 
 
@@ -112,11 +123,12 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
         body = nlohmann::json::object();
     }
     std::string username = body.value("username", "");
+    std::string nickname = body.value("nickname", "");
     std::string password = body.value("password", "");
     std::string reg_code = body.value("reg_code", "");
 
     // 参数验证
-    if(username.empty() || password.empty() || reg_code.empty()) {
+    if(username.empty() || nickname.empty() || password.empty() || reg_code.empty()) {
         nlohmann::json j;
         j["status"] = "failed";
         j["error"] = "Missing required parameters";
@@ -126,7 +138,17 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
         co_await session->co_sendResp();
         co_return;
     }
-    if(username.size() > 32 || password.size() > 32) {
+    if(!isValidUsername(username)) {
+        nlohmann::json j;
+        j["status"] = "failed";
+        j["error"] = "Username must contain only English letters and digits";
+        resp->appendHeader("Content-Type", "application/json");
+        resp->setBody(j.dump());
+        resp->setStatus(http::StatusCode::bad_request);
+        co_await session->co_sendResp();
+        co_return;
+    }
+    if(username.size() > 32 || password.size() > 32 || nickname.size() > 100) {
         nlohmann::json j;
         j["status"] = "failed";
         j["error"] = "Username or password too long";
@@ -190,14 +212,19 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
     }
     // std::string password_hash = hashed_password; // 存储哈希值，盐单独存储
 
+    // 使用 snowflake 生成器生成用户id
+    const JettyCat::chat::userId user_id = g_user_id_generator.nextid();
+    M_SYLAR_LOG_INFO(j_logger) << "register user: " << username << ", nickname: " << nickname
+                               << ", user_id: " << user_id;
+
     // 插入
-    const std::string insert_user_query = "INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'USER')";
+    const std::string insert_user_query = "INSERT INTO users (user_id, username, nickname, password_hash, role) VALUES (?, ?, ?, ?, 'user')";
     const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
     MySQLStmt stmt {conn_wrap};
     IOState state = IOState::TIMEOUT;
     int count = 3;
     while (state == IOState::TIMEOUT && count--) {
-        state = co_await stmt.co_execute(insert_user_query, username, hashed_password);
+        state = co_await stmt.co_execute(insert_user_query, user_id, username, nickname, hashed_password);
     }
 
     if(state != IOState::SUCCESS) {
@@ -217,18 +244,8 @@ m_sylar::Task<void> Register::registe(m_sylar::http::HttpSession::ptr session) {
         co_return;
     }
 
-    // 查找分配的id
-    std::string find_user_id = "select users.user_id from users where username = '" + username + "';";
-    auto resp_find_user_id = co_await DB::Mysql::getInstance()->executeQuery(find_user_id);
-    resp_find_user_id->formatDate();
-    if (resp_find_user_id->getState() != IOState::SUCCESS) {
-        M_SYLAR_LOG_ERROR(j_logger) << "failed to fetch all users in MySQL query";
-    }
-    JettyCat::chat::userId user_id = std::stoi((*resp_find_user_id)["user_id"][0]);
-
-
     // 构建jwt并响应
-    std::string jwt = JWT::generateJWT(username, RolePermissions::USER, user_id);
+    std::string jwt = JWT::generateJWT(username, nickname, RolePermissions::USER, user_id);
     nlohmann::json j;
     j["status"] = "success";
 
@@ -273,8 +290,8 @@ m_sylar::Task<void> Register::coLogin(m_sylar::http::HttpSession::ptr session) {
     // 密码、角色查询
     IOState state = IOState::SUCCESS;
     auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
-    MySQLStmt<STMT_Text<16>, STMT_Text<255>, int> stmt{conn_wrap};
-    std::string get_role_query = "SELECT role, password_hash, user_id FROM users WHERE username= ? ;";
+    MySQLStmt<STMT_Text<16>, STMT_Text<255>, int64_t, STMT_Text<100>> stmt{conn_wrap};
+    std::string get_role_query = "SELECT role, password_hash, user_id, nickname FROM users WHERE username= ? ;";
     state = co_await stmt.co_execute(get_role_query, username);
     state = co_await stmt.co_storeAll();
     state = co_await stmt.co_fetchAll();
@@ -295,6 +312,7 @@ m_sylar::Task<void> Register::coLogin(m_sylar::http::HttpSession::ptr session) {
     const std::string role_val = std::get<0>(result[0]).toString();
     const std::string stored_password_hash = std::get<1>(result[0]).toString();
     const JettyCat::chat::userId user_id = std::get<2>(result[0]);
+    const std::string nickname = std::get<3>(result[0]).toString();
 
 
     // 验证密码
@@ -311,7 +329,7 @@ m_sylar::Task<void> Register::coLogin(m_sylar::http::HttpSession::ptr session) {
     // M_SYLAR_LOG_INFO(j_logger) << "user " << username << " login with role " << role_val;
     nlohmann::json j;
     j["status"] = "success";
-    std::string jwt = JWT::generateJWT(username, RolePermissions::RoleFromString(role_val), user_id);
+    std::string jwt = JWT::generateJWT(username, nickname, RolePermissions::RoleFromString(role_val), user_id);
     std::string cookie = "jwttoken=" + jwt + "; HttpOnly; SameSite=Strict; Path=/";
     resp->appendHeader("Content-Type", "application/json");
     resp->appendHeader("Set-Cookie", cookie);

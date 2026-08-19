@@ -39,8 +39,8 @@ public:
     struct RouteKeyHash {
         size_t operator()(const RouteKey& k) const {
             size_t h = std::hash<std::string>()(k.type);
-            h ^= std::hash<int>()(k.from) + 0x9e3779b9 + (h << 6) + (h >> 2);
-            h ^= std::hash<int>()(k.to)   + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<JettyCat::chat::userId>()(k.from) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            h ^= std::hash<JettyCat::chat::userId>()(k.to)   + 0x9e3779b9 + (h << 6) + (h >> 2);
             return h;
         }
     };

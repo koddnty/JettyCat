@@ -21,7 +21,7 @@ namespace chatter::service {
     size_t offset = 0;
     std::string param_err;
     try {
-        sender_id = std::stoi(sender_id_str);
+        sender_id = std::stoll(sender_id_str);
         if (!offset_str.empty()) {
             long off = std::stol(offset_str);
             if (off < 0) {
@@ -45,7 +45,7 @@ namespace chatter::service {
     } else {
         // 提供 receiverId 时，仅允许拉"我自己发给对方"（senderId 必须等于当前登录用户）
         try {
-            long recv = std::stol(receiver_id_str);
+            long long recv = std::stoll(receiver_id_str);
             if (recv <= 0) {
                 param_err = "BAD_REQUEST: Invalid 'receiverId'";
             } else {

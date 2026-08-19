@@ -29,7 +29,8 @@ public:
     using ptr = std::shared_ptr<UserChatInfo>;
     explicit UserChatInfo() = default;
     std::string user_name;
-    int user_id{};
+    std::string nickname;
+    JettyCat::chat::userId user_id{};
     RolePermissions::Role role{RolePermissions::UNKNOWN};
 
     int pongLoop{0}; // 记录pong次数,用于减少redis更新,通信次数
@@ -67,20 +68,14 @@ m_sylar::Task<void> ChatHandler::co_onOpen(std::shared_ptr<WsSession> session) {
     JWT::Header header = JWT::parserHeader(jwttoken);
     JWT::Payload payload = JWT::parserPayload(jwttoken);
 
-    // 用户其余信息获取
-    std::string cmd = "select users.user_id from users where username = '" + payload.user_name + "';";
-    auto resp = co_await DB::Mysql::getInstance()->executeQuery(cmd);
-    resp->formatDate();
-    if (resp->getState() != IOState::SUCCESS) {
-        M_SYLAR_LOG_ERROR(g_logger) << "failed to fetch all users in MySQL query";
-    }
-    JettyCat::chat::userId user_id = std::stoi((*resp)["user_id"][0]);
+    // 用户id直接取自JWT负载(snowflake生成的大整数, 无需再查库)
+    const JettyCat::chat::userId user_id = payload.user_id;
 
     // 存储用户id--sessionId映射关系
     M_SYLAR_LOG_DEBUG(g_logger) << "WebSocket connection opened, storing id, sessionId, user=" << payload.user_name <<
  ", sessionId=" << sessionId;
 
-    cmd = "SADD " + chatWebsocket::formatUserName(user_id) + " " + std::to_string(sessionId);
+    std::string cmd = "SADD " + chatWebsocket::formatUserName(user_id) + " " + std::to_string(sessionId);
     m_sylar::RedisResp::ptr reply = co_await m_sylar::DB::Redis::getInstance()->executeQuery(cmd);
 
     if (reply->getState() != m_sylar::IOState::SUCCESS) {
@@ -111,6 +106,7 @@ user_name;
         auto user = std::make_shared<UserChatInfo>();
         user->user_id = user_id;
         user->user_name = payload.user_name;
+        user->nickname = payload.nickname;
         user->role = payload.role;
         session->setData(user);
     }
@@ -152,7 +148,7 @@ user_name;
     welcome_msg.setStatusCode(http::StatusCode::ok)
                .setFrom(0)
                .setTo(user_id)
-               .setContent("wellcome, " + payload.user_name + "!");
+               .setContent("wellcome, " + (payload.nickname.empty() ? payload.user_name : payload.nickname) + "!");
     websocket::Frame wellcome_frame;
     wellcome_frame.setOpcode(websocket_flags::WS_OP_TEXT);
     wellcome_frame.setTextPayload(welcome_msg.dump());

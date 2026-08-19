@@ -37,6 +37,7 @@ public:
     class Payload {
     public:
         std::string user_name;
+        std::string nickname;
         JettyCat::chat::userId user_id {-1};
         uint64_t exp;
         RolePermissions::Role role = RolePermissions::Role::UNKNOWN;
@@ -48,7 +49,8 @@ public:
         EXPIRED = 2
     };
 
-    static std::string generateJWT(const std::string& username, RolePermissions::Role role, JettyCat::chat::userId user_id);
+    static std::string generateJWT(const std::string& username, const std::string& nickname,
+                                   RolePermissions::Role role, JettyCat::chat::userId user_id);
     static State verifyJWT(const http::HttpSession::ptr& session);
     static State verifyJWT(const std::string& jwt);
 

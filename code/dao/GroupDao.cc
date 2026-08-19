@@ -125,7 +125,7 @@ Task<JettyCat::chat::DBState> GroupDao::listJoinedGroupIds(
     const std::string sql = "select group_id from user_group where user_id = ?";
 
     auto conn = m_db->borrowConn();
-    MySQLStmt<int> stmt {conn};
+    MySQLStmt<int64_t> stmt {conn};
 
     IOState state = IOState::TIMEOUT;
     int count = 3;

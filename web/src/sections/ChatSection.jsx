@@ -95,20 +95,20 @@ export default function ChatSection({ active }) {
   // 根据发送者 id 解析聊天里要显示的昵称与头像(用于 QQ 式的消息气泡)。
   const resolveDisplayMeta = useCallback(
     (fromId) => {
-      const from = Number(fromId);
+      const from = String(fromId);
       const conv = activeRef.current;
       const key = `user:${from}`;
 
       if (profileCacheRef.current.has(key)) return Promise.resolve(profileCacheRef.current.get(key));
       if (inflightRef.current.has(key)) return inflightRef.current.get(key);
 
-      if (from === Number(myId)) {
+      if (from === String(myId)) {
         const meta = { name: myName || '我', avatar: myAvatarUrl || '' };
         profileCacheRef.current.set(key, meta);
         return Promise.resolve(meta);
       }
 
-      if (conv && conv.kind === 'user' && from === Number(conv.id)) {
+      if (conv && conv.kind === 'user' && from === String(conv.id)) {
         const meta = { name: conv.name || `用户 ${from}`, avatar: conv.avatarUrl || '' };
         profileCacheRef.current.set(key, meta);
         return Promise.resolve(meta);
@@ -132,8 +132,8 @@ export default function ChatSection({ active }) {
   // 点击头像时：优先用缓存，无缓存则拉取
   const handleAvatarClick = useCallback(
     async (fromId) => {
-      const from = Number(fromId);
-      if (!Number.isInteger(from) || from < 1) return;
+      const from = String(fromId);
+      if (!/^\d+$/.test(from)) return;
       const key = `user:${from}`;
       // 优先用缓存
       if (profileCacheRef.current.has(key)) {
@@ -144,11 +144,11 @@ export default function ChatSection({ active }) {
       // 无缓存：拉取
       const prof = await fetchUserProfile(from);
       if (prof) {
-        const meta = { name: prof.nickname || prof.username || `用户 ${from}`, avatar: prof.avatarUrl || '' };
+        const meta = { name: prof.nickname || prof.username || `用户 ${from}`, avatar: prof.avatarUrl || '', username: prof.username || '' };
         profileCacheRef.current.set(key, meta);
         setAvatarProfile({ id: from, ...meta });
       } else {
-        setAvatarProfile({ id: from, name: `用户 ${from}`, avatar: '' });
+        setAvatarProfile({ id: from, name: `用户 ${from}`, avatar: '', username: '' });
       }
     },
     [fetchUserProfile]
@@ -196,7 +196,7 @@ export default function ChatSection({ active }) {
             id: nextMessageId('history'),
             origin: 'history',
             date: Number(item.date) || 0,
-            from: Number(item.from),
+            from: String(item.from),
             content: item.content == null ? '' : String(item.content),
           }))
           .sort(compareMessages);
@@ -223,15 +223,15 @@ export default function ChatSection({ active }) {
     loadingRef.current = true;
     try {
       const batch = await nextMergedBatch(10);
-      const entries = batch
-        .map((item) => ({
-          id: nextMessageId('history'),
-          origin: 'history',
-          date: Number(item.date) || 0,
-          from: Number(item.from),
-          content: item.content == null ? '' : String(item.content),
-        }))
-        .sort(compareMessages);
+const entries = batch
+          .map((item) => ({
+            id: nextMessageId('history'),
+            origin: 'history',
+            date: Number(item.date) || 0,
+            from: String(item.from),
+            content: item.content == null ? '' : String(item.content),
+          }))
+          .sort(compareMessages);
       const existing = messagesMapRef.current.get(key) || [];
       const seen = new Set(existing.map((m) => `${m.date}|${m.from}|${m.content}`));
       const fresh = entries.filter((m) => !seen.has(`${m.date}|${m.from}|${m.content}`));
@@ -284,12 +284,12 @@ export default function ChatSection({ active }) {
 
       if (type === 'private_message') {
         if (conv.kind !== 'user') return;
-        if (Number(sender) !== Number(conv.id) && Number(receiver) !== Number(conv.id)) return;
-        if (Number(sender) !== Number(conv.id)) return;
+        if (String(sender) !== String(conv.id) && String(receiver) !== String(conv.id)) return;
+        if (String(sender) !== String(conv.id)) return;
       } else if (type === 'group_message') {
         if (conv.kind !== 'group') return;
-        if (Number(groupId) !== Number(conv.id)) return;
-        if (Number(sender) === Number(myId)) return;
+        if (String(groupId) !== String(conv.id)) return;
+        if (String(sender) === String(myId)) return;
       } else {
         return;
       }
@@ -300,7 +300,7 @@ export default function ChatSection({ active }) {
         id: nextMessageId('live'),
         origin: 'live',
         date: (inner && inner.date) || Math.floor(Date.now() / 1000),
-        from: Number((inner && inner.from !== undefined) ? inner.from : sender),
+        from: String((inner && inner.from !== undefined) ? inner.from : sender),
         content: (inner && inner.content) || '',
       };
       list.push(entry);
@@ -445,7 +445,7 @@ export default function ChatSection({ active }) {
               <span className="avatar-profile-img avatar-profile-fallback">{initials(avatarProfile.name)}</span>
             )}
             <div className="avatar-profile-name">{avatarProfile.name}</div>
-            <div className="avatar-profile-id">ID {avatarProfile.id}</div>
+            <div className="avatar-profile-id">{avatarProfile.username ? `用户名 ${avatarProfile.username}` : ''}</div>
             <div className="avatar-profile-actions">
               <button type="button" className="avatar-profile-btn" onClick={() => setAvatarProfile(null)}>关闭</button>
             </div>
@@ -486,7 +486,7 @@ async function toChatUiMessage(item, myId, prevDate = 0, resolveDisplayMeta = nu
   const createdAt = Number(item.date) * 1000;
   const prevAt = Number(prevDate) * 1000;
   const showTime = prevAt === 0 || createdAt - prevAt >= TIME_GAP;
-  const isSelf = Number(item.from) === Number(myId);
+  const isSelf = String(item.from) === String(myId);
   let meta = { name: isSelf ? '我' : '他', avatar: '' };
   if (resolveDisplayMeta) {
     const resolved = await resolveDisplayMeta(item.from);
@@ -504,6 +504,6 @@ async function toChatUiMessage(item, myId, prevDate = 0, resolveDisplayMeta = nu
       avatar: meta.avatar,
       avatarAlt: meta.name,
     },
-    _from: Number(item.from),
+    _from: String(item.from),
   };
 }

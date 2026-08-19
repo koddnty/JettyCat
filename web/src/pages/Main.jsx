@@ -17,7 +17,7 @@ const SECTION_META = {
 const SECTION_ORDER = ['chat', 'contacts', 'live', 'analytics'];
 
 export default function MainPage() {
-  const { connected, myId, myName, myAvatarUrl, conversations, activity, sortMode, changeSortMode, notices, dismissNotice, addFriend, removeFriend, addGroup, removeGroup, connect, disconnect, unread, lastMessages, setActiveKey, clearUnread, showNotice, fetchUserProfile } = useChat();
+  const { connected, myId, myName, myUsername, myAvatarUrl, conversations, activity, sortMode, changeSortMode, notices, dismissNotice, addFriend, removeFriend, addGroup, removeGroup, connect, disconnect, unread, lastMessages, setActiveKey, clearUnread, showNotice, fetchUserProfile } = useChat();
   const [section, setSection] = useState('chat');
   const [activeConversation, setActiveConversation] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -81,10 +81,11 @@ export default function MainPage() {
   };
 
   const submitAdd = async () => {
-    const value = Number(newTargetId);
-    if (!Number.isInteger(value) || value < 1) return;
+    const raw = String(newTargetId || '').trim();
+    if (!/^\d+$/.test(raw)) return;
     setAddBusy(true);
     try {
+      const value = addMode === 'group' ? Number(raw) : raw;
       const result = addMode === 'group' ? await addGroup(value) : await addFriend(value);
       if (!result || result.code !== 200) {
         showNotice(addMode === 'group' ? '加入群聊' : '添加好友', (result && result.msg) || '操作失败, 请稍后重试');
@@ -107,7 +108,7 @@ export default function MainPage() {
       showNotice(item.kind === 'group' ? '退出群聊' : '删除好友', (result && result.msg) || '操作失败, 请稍后重试');
       return;
     }
-    if (activeConversation && activeConversation.kind === item.kind && Number(activeConversation.id) === Number(item.id)) {
+    if (activeConversation && activeConversation.kind === item.kind && String(activeConversation.id) === String(item.id)) {
       setActiveConversation(null);
     }
   };
@@ -173,7 +174,7 @@ export default function MainPage() {
           </button>
           {menuOpen && (
             <div className="profile-menu">
-              {myId && <div className="profile-info-line">ID {myId}</div>}
+              {myUsername && <div className="profile-info-line">用户名 {myUsername}</div>}
               <button type="button" onClick={() => { setMenuOpen(false); selectSection('settings'); }}>账户设置</button>
               <button type="button" onClick={() => { setMenuOpen(false); logout(); }}>退出登录</button>
             </div>
@@ -245,9 +246,9 @@ export default function MainPage() {
             <label>
               {addMode === 'group' ? '群聊 ID' : '用户 ID'}
               <input
-                type="number"
-                min="1"
-                placeholder={addMode === 'group' ? '例如 1' : '例如 20'}
+                type="text"
+                inputMode="numeric"
+                placeholder={addMode === 'group' ? '例如 1' : '例如 123456789012345678'}
                 value={newTargetId}
                 onChange={(e) => setNewTargetId(e.target.value)}
                 autoFocus
@@ -289,7 +290,7 @@ function initials(name) {
 function resolveConversation(active, conversations) {
   if (!active) return null;
   const match = conversations.find(
-    (item) => item.kind === active.kind && Number(item.id) === Number(active.id)
+    (item) => item.kind === active.kind && String(item.id) === String(active.id)
   );
   return match ? { ...active, ...match } : active;
 }
@@ -325,7 +326,7 @@ function buildSidebarItems(section, conversations, activeConversation, unread, l
         sub: last ? truncate(last) : (item.kind === 'group' ? '点击进入群聊' : '点击进入私聊'),
         unread: unread[key] || 0,
         lastActive,
-        active: activeConversation && activeConversation.kind === item.kind && Number(activeConversation.id) === Number(item.id),
+        active: activeConversation && activeConversation.kind === item.kind && String(activeConversation.id) === String(item.id),
         avatarUrl: item.avatarUrl || '',
       };
     });
@@ -511,7 +512,7 @@ function Sidebar({ section, items, activeKey, open, onSelect, onAdd, onRemove, s
                                 )}
                                 <div className="list-more-profile-info">
                                   <div className="list-more-profile-name">{profileCache[item.key].nickname || profileCache[item.key].username || item.name}</div>
-                                  <div className="list-more-profile-id">ID {profileCache[item.key].id || item.id}</div>
+                                  <div className="list-more-profile-id">{profileCache[item.key].username ? `用户名 ${profileCache[item.key].username}` : ''}</div>
                                 </div>
                               </div>
                               {profileCache[item.key].username && profileCache[item.key].nickname && (
@@ -527,7 +528,7 @@ function Sidebar({ section, items, activeKey, open, onSelect, onAdd, onRemove, s
                               )}
                               <div className="list-more-profile-info">
                                 <div className="list-more-profile-name">{item.name}</div>
-                                <div className="list-more-profile-id">ID {item.id}</div>
+                                <div className="list-more-profile-id">{item.username ? `用户名 ${item.username}` : ''}</div>
                               </div>
                             </div>
                           )}

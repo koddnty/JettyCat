@@ -18,7 +18,7 @@ namespace chatter::service {
     JettyCat::chat::userId friend_id = 0;
     bool parse_error = false;
     try {
-        friend_id = std::stoi(friend_id_str);
+        friend_id = std::stoll(friend_id_str);
     } catch (const std::exception&) {
         parse_error = true;
     }
@@ -56,7 +56,7 @@ namespace chatter::service {
     JettyCat::chat::userId friend_id = 0;
     bool parse_error = false;
     try {
-        friend_id = std::stoi(friend_id_str);
+        friend_id = std::stoll(friend_id_str);
     } catch (const std::exception&) {
         parse_error = true;
     }
@@ -142,7 +142,7 @@ namespace chatter::service {
     JettyCat::chat::userId user_id = 0;
     bool parse_error = false;
     try {
-        user_id = std::stoi(user_id_str);
+        user_id = std::stoll(user_id_str);
     } catch (const std::exception&) {
         parse_error = true;
     }

@@ -68,7 +68,7 @@ Task<JettyCat::chat::DBState> FriendDao::addFriend(const JettyCat::chat::userId 
 Task<JettyCat::chat::DBState> FriendDao::userExists(const JettyCat::chat::userId user_id,
                                                 bool& exists) const {
     auto conn = m_db->borrowConn();
-    MySQLStmt<int> stmt {conn};
+    MySQLStmt<int64_t> stmt {conn};
     const std::string sql = "select user_id from users where user_id = ?";
 
     IOState state = IOState::TIMEOUT;
@@ -107,7 +107,7 @@ Task<JettyCat::chat::DBState> FriendDao::listFriends(const JettyCat::chat::userI
         "where f.friend_id = ? and f.status = 1";
 
     auto conn = m_db->borrowConn();
-    MySQLStmt<int, STMT_Text<50>, STMT_Text<100>, STMT_Text<500>> stmt {conn};
+    MySQLStmt<int64_t, STMT_Text<50>, STMT_Text<100>, STMT_Text<500>> stmt {conn};
 
     IOState state = IOState::TIMEOUT;
     int count = 3;
@@ -128,7 +128,7 @@ Task<JettyCat::chat::DBState> FriendDao::listFriends(const JettyCat::chat::userI
     nlohmann::json friends = nlohmann::json::array();
     for (auto result = stmt.getResult().getAll(); auto& it : result) {
         nlohmann::json friend_json;
-        friend_json["friend_id"]  = std::get<0>(it);
+        friend_json["friend_id"]  = std::to_string(std::get<0>(it)); // user_id 为 snowflake 大整数, 以字符串传输避免精度丢失
         friend_json["username"]   = std::get<1>(it).toString();
         friend_json["nickname"]   = std::get<2>(it).toString();
         friend_json["avatar_url"] = std::get<3>(it).toString();
@@ -145,7 +145,7 @@ Task<JettyCat::chat::DBState> FriendDao::getPublicProfile(const JettyCat::chat::
         "select u.user_id, u.username, u.nickname, u.avatar from users u where u.user_id = ?";
 
     auto conn = m_db->borrowConn();
-    MySQLStmt<int, STMT_Text<50>, STMT_Text<100>, STMT_Text<500>> stmt {conn};
+    MySQLStmt<int64_t, STMT_Text<50>, STMT_Text<100>, STMT_Text<500>> stmt {conn};
 
     IOState state = IOState::TIMEOUT;
     int count = 3;
@@ -173,7 +173,7 @@ Task<JettyCat::chat::DBState> FriendDao::getPublicProfile(const JettyCat::chat::
     nlohmann::json profile;
     {
         auto& row = rows.front();
-        profile["user_id"]    = std::get<0>(row);
+        profile["user_id"]    = std::to_string(std::get<0>(row)); // user_id 为 snowflake 大整数, 以字符串传输避免精度丢失
         profile["username"]   = std::get<1>(row).toString();
         profile["nickname"]   = std::get<2>(row).toString();
         profile["avatar_url"] = std::get<3>(row).toString();

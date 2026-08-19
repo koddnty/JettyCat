@@ -79,11 +79,19 @@ int WsMessage::load(const nlohmann::json& json) {
         if (json.contains("code") && json["code"].is_number_integer()) {
             m_code = static_cast<http::StatusCode>(json["code"].get<int>());
         }
-        if (json.contains("from") && json["from"].is_number_integer()) {
-            m_from = json["from"].get<JettyCat::chat::userId>();
+        if (json.contains("from")) {
+            if (json["from"].is_number_integer()) {
+                m_from = json["from"].get<JettyCat::chat::userId>();
+            } else if (json["from"].is_string()) {
+                m_from = std::stoll(json["from"].get<std::string>());
+            }
         }
-        if (json.contains("to") && json["to"].is_number_integer()) {
-            m_to = json["to"].get<JettyCat::chat::userId>();
+        if (json.contains("to")) {
+            if (json["to"].is_number_integer()) {
+                m_to = json["to"].get<JettyCat::chat::userId>();
+            } else if (json["to"].is_string()) {
+                m_to = std::stoll(json["to"].get<std::string>());
+            }
         }
         if (json.contains("type") && json["type"].is_string()) {
             m_type = json["type"].get<std::string>();
@@ -135,8 +143,8 @@ std::string WsMessage::dump() {
     json["type"] = m_type;
     json["reason"] = m_reason;
     json["content"] = m_content;
-    json["from"] = m_from;
-    json["to"] = m_to;
+    json["from"] = std::to_string(m_from); // user_id 为 snowflake 大整数, 以字符串传输避免精度丢失
+    json["to"] = std::to_string(m_to);
     return json.dump();
 }
 

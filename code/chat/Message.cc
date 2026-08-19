@@ -33,7 +33,7 @@ std::string Message::TypeToString(const Type type) {
 std::string Message::dump() const {
     nlohmann::json j{};
     j["date"] = m_date;
-    j["from"] = m_from;
+    j["from"] = std::to_string(m_from); // user_id 为 snowflake 大整数, 以字符串传输避免精度丢失
     j["type"] = TypeToString(m_type);
     j["content"] = m_content;
     return j.dump();
@@ -44,8 +44,12 @@ int Message::load(const nlohmann::json& j) {
         if (j.contains("date") && j["date"].is_number()) {
             m_date = j["date"].get<uint64_t>();
         }
-        if (j.contains("from") && j["from"].is_number_integer()) {
-            m_from = j["from"].get<userId>();
+        if (j.contains("from")) {
+            if (j["from"].is_number_integer()) {
+                m_from = j["from"].get<int64_t>();
+            } else if (j["from"].is_string()) {
+                m_from = std::stoll(j["from"].get<std::string>());
+            }
         }
         if (j.contains("type") && j["type"].is_string()) {
             m_type = StringToType(j["type"].get<std::string>());
@@ -130,7 +134,7 @@ m_sylar::Task<DBState> sendToGroup(const groupId& group_id, const MessageList& m
 m_sylar::Task<DBState> fetchFromGroup(const groupId& group_id, size_t offset, MessageList& message_list) {
     const std::string sql = "select user_id, msg_type, content, UNIX_TIMESTAMP(send_time) from group_message where group_message.group_id = ? order by group_message.send_time desc limit 10 offset ?";
     const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
-    MySQLStmt<int, STMT_Text<36>, STMT_Text<2048>, uint64_t> stmt {conn_wrap};
+    MySQLStmt<int64_t, STMT_Text<36>, STMT_Text<2048>, uint64_t> stmt {conn_wrap};
 
     // 执行语句
     IOState state = IOState::TIMEOUT;
@@ -175,7 +179,7 @@ m_sylar::Task<DBState> fetchFromGroup(const groupId& group_id, size_t offset, Me
 m_sylar::Task<DBState> fetchFromInbox(const userId& sender_id, const userId& receiver_id, size_t offset, MessageList& message_list) {
     const std::string sql = "select sender_id, msg_type, content, UNIX_TIMESTAMP(send_time) from user_message where user_message.sender_id = ? and user_message.receiver_id = ? order by user_message.send_time desc limit 10 offset ?";
     const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
-    MySQLStmt<int, STMT_Text<36>, STMT_Text<2048>, uint64_t> stmt {conn_wrap};
+    MySQLStmt<int64_t, STMT_Text<36>, STMT_Text<2048>, uint64_t> stmt {conn_wrap};
 
     // 执行语句
     IOState state = IOState::TIMEOUT;

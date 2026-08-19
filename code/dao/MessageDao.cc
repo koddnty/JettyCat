@@ -12,7 +12,7 @@ Task<JettyCat::chat::DBState> MessageDao::fetchFromInbox(
         "order by user_message.send_time desc limit 10 offset ?";
 
     auto conn = m_db->borrowConn();
-    MySQLStmt<int, STMT_Text<36>, STMT_Text<2048>, uint64_t> stmt {conn};
+    MySQLStmt<int64_t, STMT_Text<36>, STMT_Text<2048>, uint64_t> stmt {conn};
 
     IOState state = IOState::TIMEOUT;
     int count = 3;
@@ -52,7 +52,7 @@ Task<JettyCat::chat::DBState> MessageDao::fetchFromGroup(
         "order by group_message.send_time desc limit 10 offset ?";
 
     auto conn = m_db->borrowConn();
-    MySQLStmt<int, STMT_Text<36>, STMT_Text<2048>, uint64_t> stmt {conn};
+    MySQLStmt<int64_t, STMT_Text<36>, STMT_Text<2048>, uint64_t> stmt {conn};
 
     IOState state = IOState::TIMEOUT;
     int count = 3;

@@ -54,6 +54,7 @@ export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [regUsername, setRegUsername] = useState('');
+  const [regNickname, setRegNickname] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regPasswordConfirm, setRegPasswordConfirm] = useState('');
   const [regCode, setRegCode] = useState('');
@@ -70,14 +71,16 @@ export default function LoginPage() {
 
   const validateLogin = () => {
     if (!username.trim() || !password) return showAlert('请输入用户名和密码'), false;
+    if (!/^[A-Za-z0-9]+$/.test(username.trim())) return showAlert('用户名只能包含英文字母和数字'), false;
     if (username.trim().length < 3) return showAlert('用户名至少 3 个字符'), false;
     if (password.length < 6) return showAlert('密码至少 6 个字符'), false;
     return true;
   };
 
   const validateRegister = () => {
-    if (!regUsername.trim() || !regPassword || !regPasswordConfirm || !regCode.trim())
+    if (!regUsername.trim() || !regNickname.trim() || !regPassword || !regPasswordConfirm || !regCode.trim())
       return showAlert('请完整填写注册信息'), false;
+    if (!/^[A-Za-z0-9]+$/.test(regUsername.trim())) return showAlert('用户名只能包含英文字母和数字'), false;
     if (regUsername.trim().length < 3) return showAlert('用户名至少 3 个字符'), false;
     if (regPassword.length < 6) return showAlert('密码至少 6 个字符'), false;
     if (regPassword !== regPasswordConfirm) return showAlert('两次输入的密码不一致'), false;
@@ -107,6 +110,7 @@ export default function LoginPage() {
     try {
       const data = await requestJson(REGISTER_URL, {
         username: regUsername.trim(),
+        nickname: regNickname.trim(),
         password: regPassword,
         reg_code: regCode.trim(),
       }, 'POST');
@@ -167,7 +171,8 @@ export default function LoginPage() {
           </form>
 
           <form className={`form-panel${mode === 'register' ? ' active' : ''}`} onSubmit={submitRegister}>
-            <Field label="用户名" value={regUsername} onChange={setRegUsername} placeholder="请输入用户名" autoComplete="username" />
+            <Field label="用户名" value={regUsername} onChange={setRegUsername} placeholder="仅限英文字母和数字" autoComplete="username" />
+            <Field label="昵称" value={regNickname} onChange={setRegNickname} placeholder="展示给其他用户的昵称" autoComplete="nickname" />
             <Field
               label="密码"
               type="password"

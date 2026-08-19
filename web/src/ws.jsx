@@ -75,6 +75,7 @@ export function ChatProvider({ children }) {
   const [connected, setConnected] = useState(false);
   const [myId, setMyId] = useState(null);
   const [myName, setMyName] = useState('jettyCat 用户');
+  const [myUsername, setMyUsername] = useState('');
   const [myAvatarUrl, setMyAvatarUrl] = useState('');
   const [conversations, setConversations] = useState([]);
   const [activity, setActivity] = useState(loadActivity);
@@ -177,15 +178,15 @@ export function ChatProvider({ children }) {
   // 查询某个用户的公开信息(昵称/头像/用户名/ID)，用于非好友的陌生用户资料展示。
   // 返回 { id, username, nickname, avatarUrl }；失败时返回 null。
   const fetchUserProfile = useCallback(async (userId) => {
-    const id = Number(userId);
-    if (!Number.isInteger(id) || id < 1) return null;
+    const id = String(userId).trim();
+    if (!/^\d+$/.test(id)) return null;
     try {
-      const response = await fetch(`/api/chat/user_profile?userId=${id}`, { credentials: 'include' });
+      const response = await fetch(`/api/chat/user_profile?userId=${encodeURIComponent(id)}`, { credentials: 'include' });
       const data = await response.json();
       const u = data && data.code === 200 && data.data && data.data.user;
       if (!u) return null;
       return {
-        id: Number(u.user_id),
+        id: String(u.user_id),
         username: u.username || '',
         nickname: u.nickname || '',
         avatarUrl: u.avatar_url || '',
@@ -220,12 +221,13 @@ export function ChatProvider({ children }) {
 
     const conversations = [];
     for (const friend of friends) {
-      const id = Number(friend.friend_id);
+      const id = String(friend.friend_id);
       if (!id) continue;
       conversations.push({
         kind: 'user',
         id,
         name: friend.nickname || friend.username || `用户 ${id}`,
+        username: friend.username || '',
         avatarUrl: friend.avatar_url || '',
       });
     }
@@ -293,13 +295,17 @@ export function ChatProvider({ children }) {
     if (myId != null) refreshLists();
   }, [myId, refreshLists]);
 
-  // 连接成功后拉取自己的头像
+  // 连接成功后拉取自己的头像/昵称/用户名
   useEffect(() => {
     if (myId == null) return;
     let cancelled = false;
     (async () => {
       const prof = await fetchUserProfile(myId);
-      if (!cancelled && prof && prof.avatarUrl) setMyAvatarUrl(prof.avatarUrl);
+      if (!cancelled && prof) {
+        if (prof.avatarUrl) setMyAvatarUrl(prof.avatarUrl);
+        if (prof.nickname) setMyName(prof.nickname);
+        if (prof.username) setMyUsername(prof.username);
+      }
     })();
     return () => { cancelled = true; };
   }, [myId, fetchUserProfile]);
@@ -334,8 +340,8 @@ export function ChatProvider({ children }) {
         type: item.kind === 'group' ? 'group_message' : 'private_message',
         reason: 'ok',
         from: myIdRef.current,
-        to: Number(item.to),
-        content: JSON.stringify({ type: 'TEXT', from: myIdRef.current, date: 0, content: item.content }),
+        to: String(item.to),
+        content: JSON.stringify({ type: 'TEXT', from: String(myIdRef.current), date: 0, content: item.content }),
       });
       try {
         socket.send(payload);
@@ -382,19 +388,19 @@ export function ChatProvider({ children }) {
         showNotice('登录状态已失效', '请重新登录后继续使用');
         return;
       }
-      if (message.from === 0 && message.to) {
-        myIdRef.current = Number(message.to);
-        setMyId(Number(message.to));
+      if (String(message.from) === '0' && message.to) {
+        myIdRef.current = String(message.to);
+        setMyId(String(message.to));
         const name = message.content ? String(message.content).replace(/^wellcome,?\s*/i, '').replace(/!$/, '') : 'jettyCat 用户';
         setMyName(name);
-        notify({ type: 'connection', connected: true, myId: Number(message.to) });
+        notify({ type: 'connection', connected: true, myId: String(message.to) });
         flushQueue();
         return;
       }
       if (message.type === 'private_message') {
         const inner = parseContent(message.content);
-        const sender = Number(inner && inner.from !== undefined ? inner.from : message.from);
-        const receiver = Number(message.to);
+        const sender = String(inner && inner.from !== undefined ? inner.from : message.from);
+        const receiver = String(message.to);
         notify({ type: 'private_message', message, inner, sender, receiver });
         recordLastMessage('user', sender, (inner && inner.content) || '', inner && inner.date);
         if (activeKeyRef.current !== `user:${sender}`) {
@@ -404,8 +410,8 @@ export function ChatProvider({ children }) {
       }
       if (message.type === 'group_message') {
         const inner = parseContent(message.content);
-        const sender = Number(inner && inner.from !== undefined ? inner.from : message.from);
-        const groupId = Number(message.to);
+        const sender = String(inner && inner.from !== undefined ? inner.from : message.from);
+        const groupId = String(message.to);
         notify({ type: 'group_message', message, inner, sender, groupId });
         recordLastMessage('group', groupId, (inner && inner.content) || '', inner && inner.date);
         if (activeKeyRef.current !== `group:${groupId}`) {
@@ -482,7 +488,7 @@ export function ChatProvider({ children }) {
     (to, content, kind = 'user') => {
       const text = String(content == null ? '' : content).trim();
       if (!text) return false;
-      sendQueueRef.current.push({ to: Number(to), content: text, kind: kind === 'group' ? 'group' : 'user' });
+      sendQueueRef.current.push({ to: String(to), content: text, kind: kind === 'group' ? 'group' : 'user' });
       flushQueue();
       return true;
     },
@@ -513,6 +519,7 @@ export function ChatProvider({ children }) {
     connected,
     myId,
     myName,
+    myUsername,
     myAvatarUrl,
     conversations,
     activity,
