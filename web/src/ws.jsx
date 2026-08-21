@@ -81,6 +81,7 @@ export function ChatProvider({ children }) {
   const [activity, setActivity] = useState(loadActivity);
   const [sortMode, setSortMode] = useState(loadSortMode);
   const [contactsReady, setContactsReady] = useState(false);
+  const [friendRequests, setFriendRequests] = useState([]);
   const [notices, setNotices] = useState([]);
   const [unread, setUnread] = useState({});
   const [lastMessages, setLastMessages] = useState({});
@@ -266,6 +267,28 @@ export function ChatProvider({ children }) {
     setContactsReady(true);
   }, []);
 
+  // 从服务端拉取发给我的待确认好友申请列表（对方发起、等待我同意）。
+  const loadFriendRequests = useCallback(async () => {
+    let requests = [];
+    try {
+      const response = await fetch('/api/chat/friend_requests', { credentials: 'include' });
+      const data = await response.json();
+      if (data && data.code === 200 && data.data && Array.isArray(data.data.requests)) {
+        requests = data.data.requests.map((r) => ({
+          id: String(r.friend_id),       // 申请方对内 user_snow_id
+          username: r.username || '',     // 申请方账号
+          nickname: r.nickname || '',     // 申请方昵称
+          avatarUrl: r.avatar_url || '',
+        }));
+      }
+    } catch (error) {
+      /* network errors keep current list intact */
+      return [];
+    }
+    setFriendRequests(requests);
+    return requests;
+  }, []);
+
   // 调用服务端关系 API 的通用封装, 成功后自动刷新列表 (写操作使用 POST + JSON body)
   const apiMutation = useCallback(
     async (path, params) => {
@@ -294,10 +317,33 @@ export function ChatProvider({ children }) {
   const addGroup = useCallback((groupId) => apiMutation('/api/chat/add_group', { groupId }), [apiMutation]);
   const removeGroup = useCallback((groupId) => apiMutation('/api/chat/remove_group', { groupId }), [apiMutation]);
 
+  // 同意某人的好友申请：成功后服务端将双方置为正常好友(WS 也会同步通知对方)。
+  const agreeFriend = useCallback(
+    async (username) => {
+      const result = await apiMutation('/api/chat/agree_friend', { username });
+      await loadFriendRequests();
+      return result;
+    },
+    [apiMutation, loadFriendRequests]
+  );
+
+  // 拒绝/忽略某人的好友申请：复用删除接口(status=0)，从申请列表中移除。
+  const rejectFriendRequest = useCallback(
+    async (username) => {
+      const result = await apiMutation('/api/chat/remove_friend', { username });
+      await loadFriendRequests();
+      return result;
+    },
+    [apiMutation, loadFriendRequests]
+  );
+
   // 连接成功后拉取一次好友/群聊列表
   useEffect(() => {
-    if (myId != null) refreshLists();
-  }, [myId, refreshLists]);
+    if (myId != null) {
+      refreshLists();
+      loadFriendRequests();
+    }
+  }, [myId, refreshLists, loadFriendRequests]);
 
   // 连接成功后拉取自己的头像/昵称/用户名
   useEffect(() => {
@@ -423,8 +469,24 @@ export function ChatProvider({ children }) {
         }
         return;
       }
+      // 实时同步：收到一条新的好友申请
+      if (message.type === 'friend_request') {
+        const content = parseContent(message.content) || {};
+        const senderName = content.requester_nickname || content.requester_username || String(message.from);
+        showNotice('新的好友申请', content.msg || `${senderName} 请求添加你为好友`, senderName);
+        loadFriendRequests();
+        return;
+      }
+      // 实时同步：我的好友申请已被对方同意
+      if (message.type === 'friend_agree') {
+        const content = parseContent(message.content) || {};
+        const friendName = content.friend_nickname || content.friend_username || String(message.from);
+        showNotice('好友申请已通过', content.msg || `${friendName} 同意了你的好友申请`, friendName);
+        refreshLists();
+        return;
+      }
     },
-    [notify, pushMessageNotice, recordLastMessage]
+    [notify, pushMessageNotice, recordLastMessage, showNotice, loadFriendRequests, refreshLists]
   );
 
   const connect = useCallback(() => {
@@ -529,6 +591,7 @@ export function ChatProvider({ children }) {
     activity,
     sortMode,
     contactsReady,
+    friendRequests,
     notices,
     unread,
     lastMessages,
@@ -540,6 +603,9 @@ export function ChatProvider({ children }) {
     removeFriend,
     addGroup,
     removeGroup,
+    agreeFriend,
+    rejectFriendRequest,
+    loadFriendRequests,
     setActiveKey,
     clearUnread,
     recordLastMessage,

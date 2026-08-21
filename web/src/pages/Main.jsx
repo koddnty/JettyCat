@@ -98,8 +98,8 @@ export default function MainPage() {
       setAddOpen(false);
       setNewTargetId('');
       if (addMode === 'friend') {
-        const prof = await fetchUserProfile(raw);
-        if (prof) setActiveConversation({ kind: 'user', id: prof.id, name: prof.nickname || prof.username });
+        // 添加好友现在走"申请-确认"流程, 请求已发送, 等对方同意后才会出现在好友列表
+        showNotice('好友申请已发送', (result && result.msg) || '等待对方同意');
       } else {
         setActiveConversation({
           kind: 'group',
@@ -116,7 +116,7 @@ export default function MainPage() {
   const handleRemove = async (item) => {
     const label = item.kind === 'group' ? `退出群聊「${item.name}」?` : `删除好友「${item.name}」?`;
     if (!window.confirm(label)) return;
-    const result = item.kind === 'group' ? await removeGroup(item.groupId) : await removeFriend(item.username);
+    const result = item.kind === 'group' ? await removeGroup(item.groupId) : await removeFriend(item.username || item.id);
     if (!result || result.code !== 200) {
       showNotice(item.kind === 'group' ? '退出群聊' : '删除好友', (result && result.msg) || '操作失败, 请稍后重试');
       return;
@@ -336,6 +336,8 @@ function buildSidebarItems(section, conversations, activeConversation, unread, l
         kind: item.kind,
         id: item.id,
         name: item.name || (item.kind === 'group' ? `群组 ${item.id}` : `用户 ${item.id}`),
+        username: item.username || '',   // 用户账号, 删除好友等操作需要
+        groupId: item.groupId,
         sub: last ? truncate(last) : (item.kind === 'group' ? '点击进入群聊' : '点击进入私聊'),
         unread: unread[key] || 0,
         lastActive,

@@ -72,6 +72,13 @@ static std::string jsonFieldToString(const nlohmann::json& body, const std::stri
     return "";
 }
 
+// 安全取字符串: null/缺省返回 "", 其他类型返回 dump() (避免 get<std::string>() 对 null 抛异常)
+static std::string jsonAsString(const nlohmann::json& val) {
+    if (val.is_null()) return "";
+    if (val.is_string()) return val.get<std::string>();
+    return val.dump();
+}
+
 static Logger::ptr g_logger = M_SYLAR_LOG_NAME("jettyCat");
 int WsMessage::load(const nlohmann::json& json) {
     int status = -1;
@@ -137,7 +144,7 @@ WsMessage& WsMessage::setStatusCode(const http::StatusCode status_code, const st
     return *this;
 }
 
-std::string WsMessage::dump() {
+std::string WsMessage::dump() const {
     nlohmann::json json;
     json["code"] = m_code;
     json["type"] = m_type;
@@ -156,6 +163,8 @@ void registeUrl(const http::HttpServer::ptr& server, const websocket::WsServer::
     server->GET("/chat/group_list", co_GetGroupList);
     server->GET("/chat/user_profile", co_GetUserProfile);
     server->POST("/chat/add_friend", co_AddFriend);
+    server->POST("/chat/agree_friend", co_AgreeFriend);
+    server->GET("/chat/friend_requests", co_GetFriendRequests);
     server->POST("/chat/remove_friend", co_RemoveFriend);
     server->POST("/chat/add_group", co_AddGroup);
     server->POST("/chat/remove_group", co_RemoveGroup);
@@ -369,10 +378,130 @@ Task<void> co_AddFriend(http::HttpSession::ptr session) {
     std::string username = jsonFieldToString(body, "username");
 
     // 业务逻辑交给 service
-    const auto result = co_await getFriendService().addFriend(user_id, username);
+    nlohmann::json data_out;
+    const auto result = co_await getFriendService().addFriend(user_id, username, data_out);
 
     if (!result.isOk()) {
         M_SYLAR_LOG_WARN(g_logger) << "co_AddFriend, business failed: " << result.getMsg();
+    } else {
+        // 同步通信：实时通知被申请方有一条待处理的好友申请
+        const nlohmann::json& requester = data_out["requester"];
+        const std::string req_nick = jsonAsString(requester["nickname"]);
+        const std::string req_user = jsonAsString(requester["username"]);
+        nlohmann::json content;
+        content["msg"] = (req_nick.empty() ? req_user : req_nick) + " 请求添加你为好友";
+        content["requester_id"]       = jsonAsString(requester["user_id"]);
+        content["requester_username"] = req_user;
+        content["requester_nickname"] = req_nick;
+        content["requester_avatar_url"] = jsonAsString(requester["avatar_url"]);
+
+        chatter::WsMessage push_msg;
+        push_msg.setStatusCode(http::StatusCode::ok)
+                .setType("friend_request")
+                .setFrom(user_id)   // 发起方
+                .setTo(std::stoll(data_out["friend_id"].get<std::string>()))  // 被申请方
+                .setContent(content.dump());
+        co_await chatter::pushToUserSessions(std::stoll(data_out["friend_id"].get<std::string>()), push_msg);
+    }
+    sendResp(session, result);
+    co_await session->co_sendResp();
+    co_return;
+}
+
+Task<void> co_AgreeFriend(http::HttpSession::ptr session) {
+    http::Request::ptr req = session->getRequest();
+    if (!TemplateHeader::CORSALL(session)) {
+        co_await session->co_sendResp();
+        co_return;
+    }
+
+    // 身份验证
+    std::string jwt = req->getCookie("jwttoken");
+    if (jwt.empty() || JWT::verifyJWT(jwt) != JWT::State::SUCCESS) {
+        M_SYLAR_LOG_WARN(g_logger) << "co_AgreeFriend, unauthorized: invalid or missing JWT token";
+        sendResp(session, 403, "FORBIDDEN: Invalid or missing JWT token");
+        co_await session->co_sendResp();
+        co_return;
+    }
+    JettyCat::chat::userId user_id = JWT::parserPayload(jwt).user_id;
+    if (user_id <= 0) {
+        M_SYLAR_LOG_WARN(g_logger) << "co_AgreeFriend, invalid JWT payload, user_id=" << user_id;
+        sendResp(session, 403, "FORBIDDEN: Invalid JWT payload");
+        co_await session->co_sendResp();
+        co_return;
+    }
+
+    // 参数获取
+    nlohmann::json body;
+    try {
+        body = nlohmann::json::parse(req->getBody());
+    } catch (const std::exception&) {
+        body = nlohmann::json::object();
+    }
+    std::string username = jsonFieldToString(body, "username");
+    if (username.empty()) {
+        username = jsonFieldToString(body, "friendId");
+    }
+
+    // 执行
+    nlohmann::json data_out;
+    const auto result = co_await getFriendService().agreeFriend(user_id, username, data_out);
+
+    if (!result.isOk()) {
+        M_SYLAR_LOG_WARN(g_logger) << "co_AgreeFriend, business failed: " << result.getMsg();
+    } else {
+        // 同步通信：实时通知申请方其好友申请已被同意
+        const nlohmann::json& friend_info = data_out["friend"];
+        const std::string f_nick = jsonAsString(friend_info["nickname"]);
+        const std::string f_user = jsonAsString(friend_info["username"]);
+        nlohmann::json content;
+        content["msg"] = (f_nick.empty() ? f_user : f_nick) + " 同意了你的好友申请";
+        content["friend_id"]        = jsonAsString(friend_info["user_id"]);
+        content["friend_username"]  = f_user;
+        content["friend_nickname"]  = f_nick;
+        content["friend_avatar_url"] = jsonAsString(friend_info["avatar_url"]);
+
+        chatter::WsMessage push_msg;
+        push_msg.setStatusCode(http::StatusCode::ok)
+                .setType("friend_agree")
+                .setFrom(user_id)   // 同意方(当前用户)
+                .setTo(std::stoll(content["friend_id"].get<std::string>()))
+                .setContent(content.dump());
+        co_await chatter::pushToUserSessions(std::stoll(content["friend_id"].get<std::string>()), push_msg);
+    }
+    sendResp(session, result);
+    co_await session->co_sendResp();
+    co_return;
+}
+
+Task<void> co_GetFriendRequests(http::HttpSession::ptr session) {
+    http::Request::ptr req = session->getRequest();
+    if (!TemplateHeader::CORSALL(session)) {
+        co_await session->co_sendResp();
+        co_return;
+    }
+
+    // 身份验证
+    std::string jwt = req->getCookie("jwttoken");
+    if (jwt.empty() || JWT::verifyJWT(jwt) != JWT::State::SUCCESS) {
+        M_SYLAR_LOG_WARN(g_logger) << "co_GetFriendRequests, unauthorized: invalid or missing JWT token";
+        sendResp(session, 403, "FORBIDDEN: Invalid or missing JWT token");
+        co_await session->co_sendResp();
+        co_return;
+    }
+    JettyCat::chat::userId user_id = JWT::parserPayload(jwt).user_id;
+    if (user_id <= 0) {
+        M_SYLAR_LOG_WARN(g_logger) << "co_GetFriendRequests, invalid JWT payload, user_id=" << user_id;
+        sendResp(session, 403, "FORBIDDEN: Invalid JWT payload");
+        co_await session->co_sendResp();
+        co_return;
+    }
+
+    // 业务逻辑交给 service
+    const auto result = co_await getFriendService().getFriendRequests(user_id);
+
+    if (!result.isOk()) {
+        M_SYLAR_LOG_WARN(g_logger) << "co_GetFriendRequests, business failed: " << result.getMsg();
     }
     sendResp(session, result);
     co_await session->co_sendResp();
@@ -410,6 +539,9 @@ Task<void> co_RemoveFriend(http::HttpSession::ptr session) {
         body = nlohmann::json::object();
     }
     std::string username = jsonFieldToString(body, "username");
+    if (username.empty()) {
+        username = jsonFieldToString(body, "friendId");
+    }
 
     // 执行
     const auto result = co_await getFriendService().removeFriend(user_id, username);

@@ -6,6 +6,14 @@
 
 namespace chatter::dao {
 
+// 好友关系状态（user_friend.status）
+enum class FriendStatus : int {
+    BLOCKED             = 0,   // 拉黑/删除
+    NORMAL              = 1,   // 正常好友
+    PENDING_SMALL_LARGE = 2,   // 待确认, 发起方是较小的 id(小到大)
+    PENDING_LARGE_SMALL = 3,   // 待确认, 发起方是较大的 id(大到小)
+};
+
 class FriendDao {
 public:
     explicit FriendDao(std::shared_ptr<DbProvider> db) : m_db(std::move(db)) {}
@@ -18,11 +26,41 @@ public:
                                                     JettyCat::chat::userId friend_id) const;
 
     /**
-     * @brief 添加好友（已存在则恢复 status=1）；内部处理 CHECK 约束排序
+     * @brief 查询两用户当前好友关系状态
+     * @param self_id 当前用户 id
+     * @param friend_id 目标用户 id
+     * @param status 输出：当前 status（仅当 exists 为 true 时有意义）
+     * @param exists 输出：关系行是否存在
+     */
+    [[nodiscard]] Task<JettyCat::chat::DBState> getFriendStatus(JettyCat::chat::userId self_id,
+                                                    JettyCat::chat::userId friend_id,
+                                                    int& status, bool& exists) const;
+
+    /**
+     * @brief 发送好友申请：写入待确认关系(小到大 status=2, 大到小 status=3)
+     *        已存在且被删除/拉黑(status=0)时恢复为待确认; 内部处理 CHECK 约束排序
+     * @param self_id 申请发起方(当前用户)
+     * @param friend_id 被申请方
      * @return SUCCESS=执行成功；TIMEOUT=查询超时；FAILED=数据库失败
      */
-    [[nodiscard]] Task<JettyCat::chat::DBState> addFriend(JettyCat::chat::userId self_id,
-                                                 JettyCat::chat::userId friend_id) const;
+    [[nodiscard]] Task<JettyCat::chat::DBState> sendFriendRequest(JettyCat::chat::userId self_id,
+                                                     JettyCat::chat::userId friend_id) const;
+
+    /**
+     * @brief 同意好友申请：将被申请方确认的关系置为 status=1(正常好友)
+     * @param self_id 当前用户 id(被申请方)
+     * @param friend_id 申请方 id
+     * @return SUCCESS=执行成功；TIMEOUT=查询超时；FAILED=数据库失败
+     */
+    [[nodiscard]] Task<JettyCat::chat::DBState> agreeFriend(JettyCat::chat::userId self_id,
+                                               JettyCat::chat::userId friend_id) const;
+
+    /**
+     * @brief 查询发给当前用户的所有待确认好友申请（对方发起的申请）
+     * @param requests_out 输出：申请列表, 每项含 friend_id/username/nickname/avatar_url(申请方信息)
+     */
+    [[nodiscard]] Task<JettyCat::chat::DBState> listFriendRequests(JettyCat::chat::userId self_id,
+                                                     nlohmann::json& requests_out) const;
 
     /**
      * @brief 判断用户是否存在

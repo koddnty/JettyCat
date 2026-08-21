@@ -45,7 +45,7 @@ public:
     [[nodiscard]] inline JettyCat::chat::userId getFrom() const {return m_from;}
     [[nodiscard]] inline JettyCat::chat::userId getTo() const {return m_to;}
 
-    [[nodiscard]] std::string dump();
+    [[nodiscard]] std::string dump() const;
     [[nodiscard]] inline State getState() const {return m_state;}
     [[nodiscard]] inline bool empty() const {return m_state == State::EMPTY;}
 
@@ -68,10 +68,18 @@ Task<void> co_FetchGroupMessage(http::HttpSession::ptr session);     // 返回�
 Task<void> co_GetFriendList(http::HttpSession::ptr session);        // 返回当前用户好友列表.
 Task<void> co_GetGroupList(http::HttpSession::ptr session);         // 返回当前用户群聊列表.
 Task<void> co_GetUserProfile(http::HttpSession::ptr session);       // 查询某个用户的公开信息(昵称/头像/用户名/ID).
-Task<void> co_AddFriend(http::HttpSession::ptr session);            // 添加好友.
+Task<void> co_AddFriend(http::HttpSession::ptr session);            // 添加好友(发出申请).
+Task<void> co_AgreeFriend(http::HttpSession::ptr session);          // 同意好友申请.
+Task<void> co_GetFriendRequests(http::HttpSession::ptr session);    // 获取发给我的待确认好友申请列表.
 Task<void> co_RemoveFriend(http::HttpSession::ptr session);         // 删除好友(标记删除).
 Task<void> co_AddGroup(http::HttpSession::ptr session);             // 加入群聊.
 Task<void> co_RemoveGroup(http::HttpSession::ptr session);          // 退出群聊(标记删除).
+
+/**
+ * @brief 同步通信辅助：将 ws_msg 推送给 user_id 的所有在线 session。
+ *        用于好友申请/同意等需要实时同步的事件（发件人在 HTTP 协程中调用）。
+ */
+m_sylar::Task<void> pushToUserSessions(JettyCat::chat::userId user_id, const WsMessage& ws_msg);
 }
 
 

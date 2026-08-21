@@ -413,6 +413,51 @@ void ChatWebSocketServer::initWsRoutes() {
 }
 
 
+/**
+ * @brief 同步通信辅助：将 ws_msg 推送给 user_id 的所有在线 session。
+ *        供好友申请/同意等 HTTP 协程在成功写入后触发实时通知。
+ *        目标离线时静默返回（消息已持久化，上线后可通过申请列表/好友列表拉到）。
+ */
+m_sylar::Task<void> chatter::pushToUserSessions(const JettyCat::chat::userId user_id,
+                                                const chatter::WsMessage& ws_msg) {
+    std::string cmd = "SMEMBERS " + chatWebsocket::formatUserName(user_id);
+    RedisResp::ptr resp = co_await DB::Redis::getInstance()->executeQuery(cmd);
+    if (resp->getState() != m_sylar::IOState::SUCCESS) {
+        M_SYLAR_LOG_WARN(g_logger) << "pushToUserSessions, redis query failed, user_id=" << user_id;
+        co_return;
+    }
+    const std::vector<RedisResp::ptr>& reply = resp->asArray();
+    if (reply.empty()) {
+        M_SYLAR_LOG_DEBUG(g_logger) << "pushToUserSessions, target offline, user_id=" << user_id;
+        co_return;
+    }
+
+    std::string payload = ws_msg.dump();
+    auto ws = websocket::WsServer::getInstance();
+    for (auto& it : reply) {
+        int session_id = 0;
+        try {
+            session_id = std::stoi(it->asString());
+        } catch (const std::exception&) {
+            continue;
+        }
+        websocket::Frame frame;
+        frame.setOpcode(websocket_flags::WS_OP_TEXT);
+        frame.setTextPayload(payload);
+        auto target_session = ws->getSession(session_id);
+        if (!target_session) {
+            M_SYLAR_LOG_DEBUG(g_logger) << "pushToUserSessions, stale session " << session_id;
+            continue;
+        }
+        int rt = co_await target_session->co_sendFrame(frame);
+        if (rt < 0) {
+            M_SYLAR_LOG_DEBUG(g_logger) << "pushToUserSessions, failed to send to session " << session_id;
+        }
+    }
+    co_return;
+}
+
+
 // ========== co_on系列回调 ==========
 /**
  * @brief WebSocket文本消息入口 — 反序列化后交由路由器分发

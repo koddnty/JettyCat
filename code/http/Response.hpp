@@ -20,6 +20,7 @@ public:
     // ---- getter ----
     [[nodiscard]] int getCode() const { return m_code; }
     [[nodiscard]] const std::string& getMsg() const { return m_msg; }
+    [[nodiscard]] const nlohmann::json& getData() const { return m_data; }
     [[nodiscard]] bool isOk() const { return m_code >= 200 && m_code < 300; }
 
     // ---- 序列化 ----

@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { useChat } from '../ws';
 
 export default function ContactsSection({ onOpenChat }) {
-  const { conversations, contactsReady, addFriend, removeFriend, addGroup, removeGroup, showNotice } = useChat();
+  const { conversations, contactsReady, friendRequests, addFriend, removeFriend, addGroup, removeGroup, agreeFriend, rejectFriendRequest, showNotice } = useChat();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState('friend');
   const [id, setId] = useState('');
   const [busy, setBusy] = useState(false);
+  const [busyReq, setBusyReq] = useState(null);
+  const [confirmRejectId, setConfirmRejectId] = useState(null);
 
   const friends = conversations.filter((item) => item.kind === 'user');
   const groups = conversations.filter((item) => item.kind === 'group');
@@ -37,9 +39,47 @@ export default function ContactsSection({ onOpenChat }) {
           id: String((result && result.data && result.data.group_snow_id) || value),
           name: (result && result.data && result.data.group_name) || `群组 ${value}`,
         });
+      } else if (result && result.msg) {
+        showNotice('好友申请已发送', result.msg);
       }
     } finally {
       setBusy(false);
+    }
+  };
+
+  // 同意某人的好友申请
+  const agree = async (item) => {
+    setConfirmRejectId(null);
+    setBusyReq(item.id);
+    try {
+      const result = await agreeFriend(item.username || item.id);
+      if (!result || result.code !== 200) {
+        showNotice('同意好友申请', (result && result.msg) || '操作失败, 请稍后重试');
+      } else {
+        showNotice('好友申请已通过', `${item.nickname || item.username} 已成为你的好友`);
+      }
+    } finally {
+      setBusyReq(null);
+    }
+  };
+
+  // 拒绝/忽略某人的好友申请 (两段式确认, 避免误触)
+  const reject = async (item) => {
+    if (confirmRejectId !== item.id) {
+      setConfirmRejectId(item.id);
+      return;
+    }
+    setConfirmRejectId(null);
+    setBusyReq(item.id);
+    try {
+      const result = await rejectFriendRequest(item.username || item.id);
+      if (!result || result.code !== 200) {
+        showNotice('忽略好友申请', (result && result.msg) || '操作失败, 请稍后重试');
+      } else {
+        showNotice('已忽略好友申请', `已忽略来自「${item.nickname || item.username}」的好友申请`);
+      }
+    } finally {
+      setBusyReq(null);
     }
   };
 
@@ -65,6 +105,40 @@ export default function ContactsSection({ onOpenChat }) {
           <button className="button" type="button" onClick={() => openDialog('group')}>＋ 加入群聊</button>
         </div>
       </header>
+
+      <section className="module-card">
+        <div className="module-card-icon">✉</div>
+        <div>
+          <h2>好友申请</h2>
+          <p>{friendRequests.length > 0 ? `${friendRequests.length} 条待处理的申请` : '暂无待处理的好友申请'}</p>
+        </div>
+      </section>
+
+      {friendRequests.length > 0 && (
+        <ul className="contact-list">
+          {friendRequests.map((item) => (
+            <li key={`req:${item.id}`} className="contact-item">
+              <span className="contact-avatar">
+                {item.avatarUrl ? (
+                  <img className="contact-avatar-img" src={item.avatarUrl} alt={item.nickname || item.username} />
+                ) : (
+                  initials(item.nickname || item.username)
+                )}
+              </span>
+              <span className="contact-copy">
+                <strong>{item.nickname || item.username}</strong>
+                <small>{item.username ? `用户名 ${item.username}` : '请求添加你为好友'}</small>
+              </span>
+              <button className="contact-open" type="button" disabled={busyReq === item.id} onClick={() => agree(item)}>
+                {busyReq === item.id ? '处理中...' : '同意'}
+              </button>
+              <button className="contact-remove" type="button" disabled={busyReq === item.id} onClick={() => reject(item)}>
+                {confirmRejectId === item.id ? '确认忽略?' : '拒绝'}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <section className="module-card">
         <div className="module-card-icon">♙</div>
@@ -138,7 +212,7 @@ export default function ContactsSection({ onOpenChat }) {
           <div className="dialog-actions">
             <button className="button secondary" type="button" onClick={() => setOpen(false)}>取消</button>
             <button className="button" type="button" onClick={save} disabled={busy}>
-              {busy ? '处理中...' : mode === 'group' ? '加入' : '添加'}
+              {busy ? '处理中...' : mode === 'group' ? '加入' : '发送申请'}
             </button>
           </div>
         </div>
