@@ -38,7 +38,7 @@ depcomp
 *.png
 *.jpg
 *.jpeg*.pdf
-*.doc
+*.doc入minio sdk依赖
 *.docx
 *.xls
 *.xlsx
@@ -64,3 +64,4 @@ private
 web/node_modules/
 web/dist/
 make
+bbuild

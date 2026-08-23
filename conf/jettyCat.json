@@ -14,6 +14,13 @@
         "minConnectionNum" : 1,
         "maxConnectionNum" : 5
     },
+    "minio" : {
+        "endpoint" : "127.0.0.1:9000",
+        "accessKey" : "admin",
+        "secretKey" : "52133445213344Ls",
+        "region" : "us-east-1",
+        "bucket" : "jettycat"
+    },
     "permission_system" : {
         "key" : "jwttoken",
         "admin" : {

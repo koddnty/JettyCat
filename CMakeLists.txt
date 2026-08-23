@@ -17,6 +17,7 @@ find_package(nlohmann_json REQUIRED)
 find_library(MARIADB_LIB mariadb /usr/local/lib/mariadb)
 find_library(HIREDIS_LIB hiredis /usr/local/lib)
 find_library(SYLAR_LIB sylar /usr/local/lib)
+find_package(CURL REQUIRED)
 
 file(GLOB_RECURSE ALL_SOURCES "code/*.cc")
 
@@ -33,6 +34,7 @@ set ( LIB_LIB
     ${SYLAR_LIB}
     ${MARIADB_LIB}
     ${HIREDIS_LIB}
+    CURL::libcurl
 )
 target_link_libraries(jtcat PUBLIC ${LIB_LIB} sylar)
 
