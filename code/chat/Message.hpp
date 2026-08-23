@@ -51,6 +51,8 @@ public:
 
     static Type StringToType(const std::string& content);
     static std::string TypeToString(Type type);
+    // 数据库 enum 存储的字符串(小写): text/image/voice/video/file
+    static std::string TypeToDbString(Type type);
 
     [[nodiscard]] std::string dump() const;
 

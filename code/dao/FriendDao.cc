@@ -144,7 +144,7 @@ Task<JettyCat::chat::DBState> FriendDao::listFriendRequests(const JettyCat::chat
     //   status=3(大到小) 时发起方是 friend_snow_id, 被申请方是 user_snow_id
     // 因此筛选被申请方 = self_id 的行, 并 join 出发起方的公开信息。
     const std::string sql =
-        "select u.user_snow_id, u.user_id, u.user_name, u.avatar_url "
+        "select u.user_snow_id, u.user_id, u.user_name, u.avatar "
         "from user_friend f "
         "join users u on u.user_snow_id = "
         "  (case when f.status = 2 then f.user_snow_id else f.friend_snow_id end) "
@@ -152,7 +152,7 @@ Task<JettyCat::chat::DBState> FriendDao::listFriendRequests(const JettyCat::chat
         "   or (f.status = 3 and f.user_snow_id = ?)";
 
     auto conn = m_db->borrowConn();
-    MySQLStmt<int64_t, STMT_Text<50>, STMT_Text<100>, STMT_Text<500>> stmt {conn};
+    MySQLStmt<int64_t, STMT_Text<50>, STMT_Text<100>, STMT_Text<512>> stmt {conn};
 
     IOState state = IOState::TIMEOUT;
     int count = 3;
@@ -250,18 +250,18 @@ Task<JettyCat::chat::DBState> FriendDao::listFriends(const JettyCat::chat::userI
                                                  nlohmann::json& friends_out) const {
     // user_friend 表历史约束 user_snow_id < friend_snow_id，因此双向查询
     const std::string sql =
-        "select u.user_snow_id, u.user_id, u.user_name, u.avatar_url "
+        "select u.user_snow_id, u.user_id, u.user_name, u.avatar "
         "from user_friend f "
         "join users u on u.user_snow_id = f.friend_snow_id "
         "where f.user_snow_id = ? and f.status = 1 "
         "union "
-        "select u.user_snow_id, u.user_id, u.user_name, u.avatar_url "
+        "select u.user_snow_id, u.user_id, u.user_name, u.avatar "
         "from user_friend f "
         "join users u on u.user_snow_id = f.user_snow_id "
         "where f.friend_snow_id = ? and f.status = 1";
 
     auto conn = m_db->borrowConn();
-    MySQLStmt<int64_t, STMT_Text<50>, STMT_Text<100>, STMT_Text<500>> stmt {conn};
+    MySQLStmt<int64_t, STMT_Text<50>, STMT_Text<100>, STMT_Text<512>> stmt {conn};
 
     IOState state = IOState::TIMEOUT;
     int count = 3;
@@ -299,7 +299,7 @@ Task<JettyCat::chat::DBState> FriendDao::getPublicProfile(const JettyCat::chat::
         "select u.user_snow_id, u.user_id, u.user_name, u.avatar from users u where u.user_snow_id = ?";
 
     auto conn = m_db->borrowConn();
-    MySQLStmt<int64_t, STMT_Text<50>, STMT_Text<100>, STMT_Text<500>> stmt {conn};
+    MySQLStmt<int64_t, STMT_Text<50>, STMT_Text<100>, STMT_Text<512>> stmt {conn};
 
     IOState state = IOState::TIMEOUT;
     int count = 3;

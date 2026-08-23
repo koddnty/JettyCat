@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import Chat, { Bubble, useMessages } from '@chatui/core';
 import { useChat } from '../ws';
+import { requestSts, uploadObject, downloadObject } from '../minio';
 
 const toolbarIcon = (body) => `data:image/svg+xml,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#42454b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`
@@ -36,6 +37,7 @@ export default function ChatSection({ active }) {
   const loadingRef = useRef(false);
   const scrollerRef = useRef(null);
   const scrollAnchorRef = useRef(null);
+  const chatRef = useRef(null);
   const activeRef = useRef(active);
   activeRef.current = active;
 
@@ -191,10 +193,11 @@ export default function ChatSection({ active }) {
       try {
         const batch = await nextMergedBatch(10);
         if (requestId !== requestIdRef.current) return;
-        const entries = batch
+const entries = batch
           .map((item) => ({
             id: nextMessageId('history'),
             origin: 'history',
+            type: String(item.type || 'text').toLowerCase(),
             date: Number(item.date) || 0,
             from: String(item.from),
             content: item.content == null ? '' : String(item.content),
@@ -227,6 +230,7 @@ const entries = batch
           .map((item) => ({
             id: nextMessageId('history'),
             origin: 'history',
+            type: String(item.type || 'text').toLowerCase(),
             date: Number(item.date) || 0,
             from: String(item.from),
             content: item.content == null ? '' : String(item.content),
@@ -299,6 +303,7 @@ const entries = batch
       const entry = {
         id: nextMessageId('live'),
         origin: 'live',
+        type: String((inner && inner.type) || 'text').toLowerCase(),
         date: (inner && inner.date) || Math.floor(Date.now() / 1000),
         from: String((inner && inner.from !== undefined) ? inner.from : sender),
         content: (inner && inner.content) || '',
@@ -339,11 +344,47 @@ const entries = batch
     [myId, appendMsg, nextMessageId, recordLastMessage, sendMessage, resolveDisplayMeta]
   );
 
-  // 图片/文件上传（预留接口，未来实现后端对接）
-  const handleImageSend = useCallback(async (file) => {
-    showNotice('图片上传', '图片上传功能即将上线');
-    return null;
-  }, [showNotice]);
+  // 图片上传：申请 STS → 直传 MinIO → 以 image 消息发送对象 key
+  const handleImageSend = useCallback(
+    async (file) => {
+      const conv = activeRef.current;
+      if (!conv || (conv.kind !== 'user' && conv.kind !== 'group')) {
+        showNotice('图片上传', '请先进入一个会话');
+        return null;
+      }
+      try {
+        showNotice('图片上传', '正在上传图片...');
+        const sts = await requestSts();
+        const objectKey = `uploads/${Date.now()}-${file.name}`;
+        await uploadObject(sts, objectKey, file, file.type || 'image/jpeg');
+
+        const now = Math.floor(Date.now() / 1000);
+        const entry = {
+          id: nextMessageId('local'),
+          origin: 'local',
+          type: 'image',
+          date: now,
+          from: myId,
+          content: objectKey,
+        };
+        const key = keyOf(conv.kind, conv.id);
+        const list = messagesMapRef.current.get(key) || [];
+        list.push(entry);
+        list.sort(compareMessages);
+        messagesMapRef.current.set(key, list);
+        const prevDate = list.length > 1 ? list[list.length - 2].date : 0;
+        appendMsg(await toChatUiMessage(entry, myId, prevDate, resolveDisplayMeta));
+        sendMessage(conv.id, objectKey, conv.kind, 'IMAGE');
+        recordLastMessage(conv.kind, conv.id, '[图片]', now);
+        showNotice('图片上传', '图片已发送');
+        return objectKey;
+      } catch (error) {
+        showNotice('图片上传', `图片上传失败: ${error.message || error}`);
+        return null;
+      }
+    },
+    [myId, nextMessageId, appendMsg, recordLastMessage, sendMessage, resolveDisplayMeta, showNotice]
+  );
 
   const handleToolbarClick = useCallback((item) => {
     if (item.type === 'image') {
@@ -385,6 +426,14 @@ const entries = batch
       if (msg.type === 'text') {
         return <Bubble content={msg.content.text} />;
       }
+      if (msg.type === 'image') {
+        return <ImageBubble objectKey={msg.content.imageKey} onLoaded={() => {
+          // 图片异步加载完成后再滚动到底, 避免高度未撑开导致未滚到底
+          if (chatRef.current && typeof chatRef.current.scrollToEnd === 'function') {
+            chatRef.current.scrollToEnd();
+          }
+        }} />;
+      }
       return null;
     },
     []
@@ -421,6 +470,7 @@ const entries = batch
   return (
     <div className="chat-module">
       <Chat
+        ref={chatRef}
         wideBreakpoint="0px"
         navbar={{ title, desc: connected ? '实时在线' : '连接中…', align: 'left' }}
         messages={messages}
@@ -492,10 +542,13 @@ async function toChatUiMessage(item, myId, prevDate = 0, resolveDisplayMeta = nu
     const resolved = await resolveDisplayMeta(item.from);
     if (resolved) meta = resolved;
   }
+  const isImage = item.type === 'image' || item.type === 'IMAGE';
   return {
     _id: item.id,
-    type: 'text',
-    content: { text: item.content || '' },
+    type: isImage ? 'image' : 'text',
+    content: isImage
+      ? { imageKey: item.content || '' }
+      : { text: item.content || '' },
     position: isSelf ? 'right' : 'left',
     createdAt,
     hasTime: showTime,
@@ -506,4 +559,37 @@ async function toChatUiMessage(item, myId, prevDate = 0, resolveDisplayMeta = nu
     },
     _from: String(item.from),
   };
+}
+
+// 图片消息气泡：申请 STS → 直接向 MinIO GET 下载 → 渲染(不经后端中转)
+function ImageBubble({ objectKey, onLoaded }) {
+  const [src, setSrc] = useState(null);
+  const [err, setErr] = useState(null);
+  const onLoadedRef = useRef(onLoaded);
+  onLoadedRef.current = onLoaded;
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const sts = await requestSts();
+        const { blob } = await downloadObject(sts, objectKey);
+        if (!alive) return;
+        setSrc(URL.createObjectURL(blob));
+      } catch (error) {
+        if (alive) setErr(error.message || '图片加载失败');
+      }
+    })();
+    return () => { alive = false; };
+  }, [objectKey]);
+  if (err) return <div style={{ color: '#dc2626', fontSize: 13 }}>图片加载失败: {err}</div>;
+  if (!src) return <div style={{ color: '#999', fontSize: 13 }}>图片加载中...</div>;
+  return (
+    <img
+      src={src}
+      alt="聊天图片"
+      style={{ maxWidth: 260, maxHeight: 260, borderRadius: 6, display: 'block', cursor: 'pointer' }}
+      onLoad={() => { if (onLoadedRef.current) onLoadedRef.current(); }}
+      onClick={() => window.open(src, '_blank')}
+    />
+  );
 }

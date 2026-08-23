@@ -391,7 +391,7 @@ export function ChatProvider({ children }) {
         reason: 'ok',
         from: myIdRef.current,
         to: String(item.to),
-        content: JSON.stringify({ type: 'TEXT', from: String(myIdRef.current), date: 0, content: item.content }),
+        content: JSON.stringify({ type: item.msgType || 'TEXT', from: String(myIdRef.current), date: 0, content: item.content }),
       });
       try {
         socket.send(payload);
@@ -438,7 +438,7 @@ export function ChatProvider({ children }) {
         showNotice('登录状态已失效', '请重新登录后继续使用');
         return;
       }
-      if (String(message.from) === '0' && message.to) {
+      if (String(message.from) === '0' && message.to && String(message.content || '').startsWith('wellcome')) {
         myIdRef.current = String(message.to);
         setMyId(String(message.to));
         const name = message.content ? String(message.content).replace(/^wellcome,?\s*/i, '').replace(/!$/, '') : 'jettyCat 用户';
@@ -551,10 +551,10 @@ export function ChatProvider({ children }) {
   }, []);
 
   const sendMessage = useCallback(
-    (to, content, kind = 'user') => {
+    (to, content, kind = 'user', msgType = 'TEXT') => {
       const text = String(content == null ? '' : content).trim();
       if (!text) return false;
-      sendQueueRef.current.push({ to: String(to), content: text, kind: kind === 'group' ? 'group' : 'user' });
+      sendQueueRef.current.push({ to: String(to), content: text, kind: kind === 'group' ? 'group' : 'user', msgType });
       flushQueue();
       return true;
     },

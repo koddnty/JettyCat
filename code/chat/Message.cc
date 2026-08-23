@@ -30,6 +30,17 @@ std::string Message::TypeToString(const Type type) {
     return content->second;
 }
 
+std::string Message::TypeToDbString(const Type type) {
+    switch (type) {
+        case Type::TEXT:  return "text";
+        case Type::IMAGE: return "image";
+        case Type::VOICE: return "voice";
+        case Type::VIDEO: return "video";
+        case Type::FILE:  return "file";
+        default:          return "text";
+    }
+}
+
 std::string Message::dump() const {
     nlohmann::json j{};
     j["date"] = m_date;
@@ -76,14 +87,14 @@ int Message::load(const std::string& raw_json) {
 
 
 m_sylar::Task<DBState> sendToUser(const userId& user_id, const MessageList& message_list) {
-    const std::string sql = "insert into user_message (sender_snow_id, receiver_snow_id, content, extra) values (?, ?, ?, ?)";
+    const std::string sql = "insert into user_message (sender_snow_id, receiver_snow_id, msg_type, content, extra) values (?, ?, ?, ?, ?)";
     const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
     MySQLStmt stmt {conn_wrap};
     for (auto& msg_it : message_list) {
         IOState state = IOState::TIMEOUT;
         int count = 3;
         while (state == IOState::TIMEOUT && count--) {
-            state = co_await stmt.co_execute(sql, msg_it.getFrom(), user_id, msg_it.getContent(), msg_it.dump());
+            state = co_await stmt.co_execute(sql, msg_it.getFrom(), user_id, msg_it.TypeToDbString(msg_it.getType()), msg_it.getContent(), msg_it.dump());
         }
 
         // 状态检查
@@ -104,14 +115,14 @@ m_sylar::Task<DBState> sendToUser(const userId& user_id, const MessageList& mess
 
 
 m_sylar::Task<DBState> sendToGroup(const groupId& group_id, const MessageList& message_list) {
-    const std::string sql = "insert into group_message (user_snow_id, group_snow_id, content, extra) values (?, ?, ?, ?)";
+    const std::string sql = "insert into group_message (user_snow_id, group_snow_id, msg_type, content, extra) values (?, ?, ?, ?, ?)";
     const auto conn_wrap = DB::Mysql::getInstance()->borrowOneConn();
     MySQLStmt stmt {conn_wrap};
     for (auto& msg_it : message_list) {
         IOState state = IOState::TIMEOUT;
         int count = 3;
         while (state == IOState::TIMEOUT && count--) {
-            state = co_await stmt.co_execute(sql, msg_it.getFrom(), group_id, msg_it.getContent(), msg_it.dump());
+            state = co_await stmt.co_execute(sql, msg_it.getFrom(), group_id, msg_it.TypeToDbString(msg_it.getType()), msg_it.getContent(), msg_it.dump());
         }
 
         // 状态检查
