@@ -354,8 +354,10 @@ const entries = batch
       }
       try {
         showNotice('图片上传', '正在上传图片...');
-        const sts = await requestSts();
-        const objectKey = `uploads/${Date.now()}-${file.name}`;
+        if (myId === null) throw new Error('用户身份未就绪');
+        // 写凭证严格限制在当前用户专属目录下
+        const sts = await requestSts({ access: 'write', path: `user/${myId}/` });
+        const objectKey = `user/${myId}/uploads/${Date.now()}-${file.name}`;
         await uploadObject(sts, objectKey, file, file.type || 'image/jpeg');
 
         const now = Math.floor(Date.now() / 1000);
@@ -571,7 +573,9 @@ function ImageBubble({ objectKey, onLoaded }) {
     let alive = true;
     (async () => {
       try {
-        const sts = await requestSts();
+        // 只读凭证，限定到图片所在的资源路径（可读共享/好友的图片）
+        const imgDir = (objectKey || '').split('/').slice(0, -1).join('/') + '/';
+        const sts = await requestSts({ access: 'read', path: imgDir });
         const { blob } = await downloadObject(sts, objectKey);
         if (!alive) return;
         setSrc(URL.createObjectURL(blob));

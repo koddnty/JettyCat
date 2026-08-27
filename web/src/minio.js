@@ -101,10 +101,16 @@ async function s3Request({ method, sts, key, body, contentType }) {
 }
 
 // 向后端申请 STS 临时凭证
-async function requestSts() {
-  const resp = await fetch('/api/upload/sts', { method: 'POST', credentials: 'include' });
+// access: 'read' | 'write' | 'readwrite'（默认 read）
+// path:   资源路径前缀，如 'user/17/'（默认由后端按用户归属计算）
+async function requestSts({ access = 'read', path = '' } = {}) {
+  const params = new URLSearchParams();
+  if (access) params.set('access', access);
+  if (path) params.set('path', path);
+  const qs = params.toString();
+  const resp = await fetch(`/api/files/sts${qs ? `?${qs}` : ''}`, { method: 'POST', credentials: 'include' });
   const j = await resp.json();
-  if (j.status !== 'success') throw new Error(j.error || 'STS 申请失败');
+  if (j.status !== 'success') throw new Error(j.error || j.msg || 'STS 申请失败');
   return j.data;
 }
 

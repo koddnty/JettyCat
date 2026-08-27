@@ -12,14 +12,14 @@
 #include "chat/connection.hpp"
 #include "init.hpp"
 #include "chat/chatter.hpp"
-#include "upload/MinioSts.hpp"
+#include "files/files.hpp"
 
 static m_sylar::Logger::ptr g_logger = M_SYLAR_LOG_NAME("jettyCat");
 
 void urlReg(m_sylar::http::HttpServer::ptr http_server, m_sylar::websocket::WsServer::ptr ws_server){
     Register::registeUrl(http_server);
     chatter::registeUrl(http_server, ws_server);
-    JettyCat::upload::MinioSts::registeUrl(http_server);
+    JettyCat::file::files::registeUrl(http_server);
 }
 
 int main() {

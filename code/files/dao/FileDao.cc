@@ -1,20 +1,18 @@
-#include "MinioSts.hpp"
-#include "login/tools.hpp"
+#include "FileDao.hpp"
 #include <curl/curl.h>
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
 #include <sstream>
 #include <cstring>
+#include <cctype>
 #include <ctime>
 #include <iomanip>
 
 static m_sylar::Logger::ptr j_logger = M_SYLAR_LOG_NAME("jettyCat");
 
-namespace JettyCat::upload {
+namespace JettyCat::file::dao {
 
-// ---------------------------------------------------------------------------
 // MinIO 配置 (conf/jettyCat.json -> "minio")
-// ---------------------------------------------------------------------------
 static m_sylar::ConfigVar<std::string>::ptr g_minio_endpoint =
     m_sylar::ConfigManager::LookUp<std::string>("minio.endpoint", "127.0.0.1:9000", JettyCat_CONFIG_ID, "minio endpoint");
 static m_sylar::ConfigVar<std::string>::ptr g_minio_access_key =
@@ -26,9 +24,7 @@ static m_sylar::ConfigVar<std::string>::ptr g_minio_region =
 static m_sylar::ConfigVar<std::string>::ptr g_minio_bucket =
     m_sylar::ConfigManager::LookUp<std::string>("minio.bucket", "jettycat", JettyCat_CONFIG_ID, "minio bucket");
 
-// ---------------------------------------------------------------------------
-// 小工具: 十六进制 / SHA256 / HMAC-SHA256 / URL编码
-// ---------------------------------------------------------------------------
+// 十六进制 / SHA256 / HMAC-SHA256 / URL编码
 namespace {
 
 std::string toHex(const unsigned char* data, size_t len) {
@@ -72,11 +68,34 @@ std::string urlEncode(const std::string& s) {
     return out;
 }
 
+// libcurl 响应写入回调
+size_t writeCb(void* contents, size_t size, size_t nmemb, void* userp) {
+    static_cast<std::string*>(userp)->append(static_cast<char*>(contents), size * nmemb);
+    return size * nmemb;
+}
+
+// 从 XML 中提取某个标签的内容
+std::string xmlExtract(const std::string& xml, const std::string& tag) {
+    std::string open = "<" + tag + ">";
+    std::string close = "</" + tag + ">";
+    size_t b = xml.find(open);
+    if (b == std::string::npos) return "";
+    b += open.size();
+    size_t e = xml.find(close, b);
+    if (e == std::string::npos) return "";
+    return xml.substr(b, e - b);
+}
+
 } // namespace
 
-// ---------------------------------------------------------------------------
+
+
+
+
+
+
+
 // SigV4 签名
-// ---------------------------------------------------------------------------
 namespace {
 
 // 生成 AWS SigV4 签名的 Authorization 头
@@ -121,35 +140,59 @@ std::string signV4(const std::string& method,
            ", Signature=" + signature;
 }
 
-// libcurl 响应写入回调
-size_t writeCb(void* contents, size_t size, size_t nmemb, void* userp) {
-    static_cast<std::string*>(userp)->append(static_cast<char*>(contents), size * nmemb);
-    return size * nmemb;
-}
-
-// 从 XML 中提取某个标签的内容
-std::string xmlExtract(const std::string& xml, const std::string& tag) {
-    std::string open = "<" + tag + ">";
-    std::string close = "</" + tag + ">";
-    size_t b = xml.find(open);
-    if (b == std::string::npos) return "";
-    b += open.size();
-    size_t e = xml.find(close, b);
-    if (e == std::string::npos) return "";
-    return xml.substr(b, e - b);
-}
-
 } // namespace
 
-// ---------------------------------------------------------------------------
-// 申请 STS 临时凭证
-// ---------------------------------------------------------------------------
-m_sylar::Task<StsCredential> MinioSts::assumeRole(unsigned int durationSeconds) {
+
+
+
+
+
+
+
+// FileDao 实现
+std::string FileDao::getEndpoint() const { return g_minio_endpoint->getValue(); }
+std::string FileDao::getBucket() const   { return g_minio_bucket->getValue(); }
+std::string FileDao::getRegion() const   { return g_minio_region->getValue(); }
+
+policy::Policy FileDao::buildResourcePolicy(const std::string& bucket, const std::string& resourcePath,
+                                            const std::vector<policy::Action>& actions) {
+    // 精确到资源路径前缀: arn:aws:s3:::bucket/<prefix> 及 <prefix>/*
+    std::vector<std::string> resources;
+    resources.push_back("arn:aws:s3:::" + bucket + "/" + resourcePath);
+    resources.push_back("arn:aws:s3:::" + bucket + "/" + resourcePath + "*");
+
+    policy::Policy p = policy::Policy::allow(actions, resources);
+    p.setId("jettycat-object-policy");
+    return p;
+}
+
+m_sylar::Task<StsCredential> FileDao::assumeRole(unsigned int durationSeconds,
+                                                 const std::string& resourcePath,
+                                                 const std::vector<policy::Action>& actions) const {
     StsCredential cred;
-    const std::string endpoint = g_minio_endpoint->getValue();
-    const std::string access_key = g_minio_access_key->getValue();
-    const std::string secret_key = g_minio_secret_key->getValue();
-    const std::string region = g_minio_region->getValue();
+    const std::string bucket = g_minio_bucket->getValue();
+
+    policy::Policy policyDoc;
+    if (!resourcePath.empty()) {
+        std::vector<policy::Action> acts = actions;
+        if (acts.empty()) {
+            acts = {policy::Action::GetObject};
+        }
+        policyDoc = buildResourcePolicy(bucket, resourcePath, acts);
+    }
+    co_return co_await assumeRoleWithPolicy(durationSeconds, policyDoc);
+}
+
+
+
+
+m_sylar::Task<StsCredential> FileDao::assumeRoleWithPolicy(unsigned int durationSeconds,
+                                                           const policy::Policy& policyDoc) const {
+    StsCredential cred;
+    const std::string endpoint    = g_minio_endpoint->getValue();
+    const std::string access_key  = g_minio_access_key->getValue();
+    const std::string secret_key  = g_minio_secret_key->getValue();
+    const std::string region      = g_minio_region->getValue();
 
     if (access_key.empty() || secret_key.empty()) {
         M_SYLAR_LOG_ERROR(j_logger) << "minio accessKey/secretKey not configured";
@@ -166,6 +209,11 @@ m_sylar::Task<StsCredential> MinioSts::assumeRole(unsigned int durationSeconds) 
 
     // STS AssumeRole 表单
     std::string form = "Action=AssumeRole&Version=2011-06-15&DurationSeconds=" + std::to_string(durationSeconds);
+    // 精确权限控制: 附加内联策略, 把临时凭证限制在指定的资源路径前缀及动作下
+    if (!policyDoc.empty()) {
+        std::string policy_text = policyDoc.toJsonString();
+        form += "&Policy=" + urlEncode(policy_text);
+    }
     std::string payload_hash = sha256Hex(form);
 
     std::string host = endpoint;
@@ -240,78 +288,4 @@ m_sylar::Task<StsCredential> MinioSts::assumeRole(unsigned int durationSeconds) 
     co_return cred;
 }
 
-// ---------------------------------------------------------------------------
-// HTTP 接口: POST /upload/sts
-// 返回临时凭证 + minio 端点/桶 信息, 供前端直传
-// ---------------------------------------------------------------------------
-m_sylar::Task<void> MinioSts::coGetSts(m_sylar::http::HttpSession::ptr session) {
-    http::Request::ptr req = session->getRequest();
-    http::Response::ptr resp = session->getResponse();
-    if (!TemplateHeader::CORSALL(session)) {
-        co_await session->co_sendResp();
-        co_return;
-    }
-
-    // 验证 JWT
-    const std::string jwt = req->getCookie("jwttoken");
-    if (jwt.empty() || JWT::State::SUCCESS != JWT::verifyJWT(jwt)) {
-        nlohmann::json j;
-        j["status"] = "failed";
-        j["error"] = "FORBIDDEN: Invalid or missing JWT token";
-        resp->appendHeader("Content-Type", "application/json");
-        resp->setBody(j.dump());
-        resp->setStatus(http::StatusCode::forbidden);
-        co_await session->co_sendResp();
-        co_return;
-    }
-
-    // 申请时长(秒), 默认 1 小时
-    unsigned int duration = 3600;
-    std::string dur_str = req->getParam("duration");
-    if (!dur_str.empty()) {
-        try { duration = std::stoul(dur_str); }
-        catch (...) { duration = 3600; }
-    }
-    if (duration < 60) duration = 60;
-    if (duration > 7200) duration = 7200;
-
-    StsCredential cred = co_await MinioSts::assumeRole(duration);
-    if (cred.accessKeyId.empty()) {
-        nlohmann::json j;
-        j["status"] = "failed";
-        j["error"] = "Failed to obtain STS credentials";
-        resp->appendHeader("Content-Type", "application/json");
-        resp->setBody(j.dump());
-        resp->setStatus(http::StatusCode::internal_server_error);
-        co_await session->co_sendResp();
-        co_return;
-    }
-
-    nlohmann::json data;
-    data["endpoint"]  = g_minio_endpoint->getValue();
-    data["bucket"]    = g_minio_bucket->getValue();
-    data["region"]    = g_minio_region->getValue();
-    data["accessKeyId"]     = cred.accessKeyId;
-    data["secretAccessKey"] = cred.secretAccessKey;
-    data["sessionToken"]    = cred.sessionToken;
-    data["expiration"]      = cred.expiration;
-
-    nlohmann::json j;
-    j["status"] = "success";
-    j["data"] = data;
-    resp->appendHeader("Content-Type", "application/json");
-    resp->setBody(j.dump());
-    resp->setStatus(http::StatusCode::ok);
-    co_await session->co_sendResp();
-    co_return;
-}
-
-void MinioSts::registeUrl(m_sylar::http::HttpServer::ptr server) {
-    if (server == nullptr) {
-        M_SYLAR_LOG_ERROR(j_logger) << "invalid http server, http server is nullptr";
-        return;
-    }
-    server->POST("/upload/sts", MinioSts::coGetSts);
-}
-
-} // namespace JettyCat::upload
+} // namespace JettyCat::file::dao
