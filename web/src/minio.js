@@ -100,17 +100,41 @@ async function s3Request({ method, sts, key, body, contentType }) {
   return resp;
 }
 
-// 向后端申请 STS 临时凭证
-// access: 'read' | 'write' | 'readwrite'（默认 read）
-// path:   资源路径前缀，如 'user/17/'（默认由后端按用户归属计算）
-async function requestSts({ access = 'read', path = '' } = {}) {
+// 向后端申请"写凭证"：只允许 PUT 单个对象 <目标snow_id>/<文件hash>
+// kind: 'user'（私聊，目标=接收者 snow_id）| 'group'（群聊，目标=群 snow_id）
+async function requestUploadSts({ kind, target, hash, duration }) {
   const params = new URLSearchParams();
-  if (access) params.set('access', access);
-  if (path) params.set('path', path);
-  const qs = params.toString();
-  const resp = await fetch(`/api/files/sts${qs ? `?${qs}` : ''}`, { method: 'POST', credentials: 'include' });
+  params.set('kind', kind);
+  params.set('target', String(target));
+  params.set('hash', hash);
+  if (duration) params.set('duration', String(duration));
+  const resp = await fetch(`/api/files/upload/sts?${params}`, { method: 'POST', credentials: 'include' });
   const j = await resp.json();
-  if (j.status !== 'success') throw new Error(j.error || j.msg || 'STS 申请失败');
+  if (j.status !== 'success') throw new Error(j.error || j.msg || '上传凭证申请失败');
+  return j.data; // { endpoint, bucket, region, objectKey, accessKeyId, secretAccessKey, sessionToken, expiration }
+}
+
+// ---- 读凭证缓存：长时有效，仅在过期或请求失败时重新申请 ----
+let fetchStsCache = null; // { sts, expiresAtMs }
+
+function cacheFetchSts(sts) {
+  const expiresAtMs = Date.parse(sts.expiration);
+  fetchStsCache = {
+    sts,
+    // 提前 60s 视为过期，避免边界竞态
+    expiresAtMs: Number.isFinite(expiresAtMs) ? expiresAtMs - 60 * 1000 : Date.now() + 3600 * 1000,
+  };
+}
+
+// 向后端申请"读凭证"（覆盖当前用户所有可读位置），带缓存
+async function requestFetchSts({ force = false } = {}) {
+  if (!force && fetchStsCache && fetchStsCache.expiresAtMs > Date.now()) {
+    return fetchStsCache.sts;
+  }
+  const resp = await fetch('/api/files/fetch/sts', { method: 'POST', credentials: 'include' });
+  const j = await resp.json();
+  if (j.status !== 'success') throw new Error(j.error || j.msg || '读凭证申请失败');
+  cacheFetchSts(j.data);
   return j.data;
 }
 
@@ -120,7 +144,12 @@ async function uploadObject(sts, key, blob, contentType) {
   return key;
 }
 
-// 下载对象为 Blob
+// 读凭证失效/失败时强制刷新
+function invalidateFetchSts() {
+  fetchStsCache = null;
+}
+
+// 下载对象为 Blob（失败时自动刷新读凭证并重试一次）
 async function downloadObject(sts, key) {
   const resp = await s3Request({ method: 'GET', sts, key });
   const contentType = resp.headers.get('Content-Type') || 'application/octet-stream';
@@ -128,4 +157,4 @@ async function downloadObject(sts, key) {
   return { blob, contentType };
 }
 
-export { requestSts, uploadObject, downloadObject };
+export { requestUploadSts, requestFetchSts, invalidateFetchSts, uploadObject, downloadObject };

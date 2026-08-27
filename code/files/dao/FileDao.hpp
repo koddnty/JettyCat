@@ -64,6 +64,29 @@ public:
         const std::string& bucket, const std::string& resourcePath,
         const std::vector<policy::Action>& actions);
 
+    /**
+     * @brief 构造"单对象策略"：精确到某一个对象 key（无通配符）
+     *        用于上传：凭证只能写一个具体文件
+     * @param bucket    桶名
+     * @param objectKey 对象 key，形如 "17/abc123"
+     * @param actions   允许的动作集合（上传场景通常仅 {PutObject}）
+     * @return 类型安全的策略对象
+     */
+    [[nodiscard]] static policy::Policy buildObjectPolicy(
+        const std::string& bucket, const std::string& objectKey,
+        const std::vector<policy::Action>& actions);
+
+    /**
+     * @brief 构造"多前缀策略"：把读权限授予多个对象前缀（用户所有可读位置）
+     * @param bucket    桶名
+     * @param prefixes  前缀列表，形如 {"17/", "20/", "33/"}
+     * @param actions   允许的动作集合（获取场景通常为 {GetObject, ListBucket}）
+     * @return 类型安全的策略对象
+     */
+    [[nodiscard]] static policy::Policy buildPrefixesPolicy(
+        const std::string& bucket, const std::vector<std::string>& prefixes,
+        const std::vector<policy::Action>& actions);
+
     // MinIO 配置访问（供上层构造响应/策略时读取）
     [[nodiscard]] std::string getEndpoint() const;
     [[nodiscard]] std::string getBucket() const;

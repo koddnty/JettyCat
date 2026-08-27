@@ -10,11 +10,8 @@ public:
     files() = default;
     ~files() = default;
 
-    // 注册 /files/sts 路由
+    // 注册文件相关路由（上传/获取 STS）
     static void registeUrl(m_sylar::http::HttpServer::ptr server);
-
-    // 提供给前端的 STS 接口处理函数（协议层）
-    static m_sylar::Task<void> coGetSts(m_sylar::http::HttpSession::ptr session);
 };
 
 } // namespace JettyCat::file

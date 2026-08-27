@@ -166,6 +166,32 @@ policy::Policy FileDao::buildResourcePolicy(const std::string& bucket, const std
     return p;
 }
 
+policy::Policy FileDao::buildObjectPolicy(const std::string& bucket, const std::string& objectKey,
+                                          const std::vector<policy::Action>& actions) {
+    // 精确到单个对象: arn:aws:s3:::bucket/<objectKey>（无通配符）
+    std::vector<std::string> resources;
+    resources.push_back("arn:aws:s3:::" + bucket + "/" + objectKey);
+
+    policy::Policy p = policy::Policy::allow(actions, resources);
+    p.setId("jettycat-object-policy");
+    return p;
+}
+
+policy::Policy FileDao::buildPrefixesPolicy(const std::string& bucket,
+                                            const std::vector<std::string>& prefixes,
+                                            const std::vector<policy::Action>& actions) {
+    // 多前缀: 每个前缀 <prefix> 及 <prefix>* 都放行
+    std::vector<std::string> resources;
+    for (const auto& prefix : prefixes) {
+        resources.push_back("arn:aws:s3:::" + bucket + "/" + prefix);
+        resources.push_back("arn:aws:s3:::" + bucket + "/" + prefix + "*");
+    }
+
+    policy::Policy p = policy::Policy::allow(actions, resources);
+    p.setId("jettycat-object-policy");
+    return p;
+}
+
 m_sylar::Task<StsCredential> FileDao::assumeRole(unsigned int durationSeconds,
                                                  const std::string& resourcePath,
                                                  const std::vector<policy::Action>& actions) const {

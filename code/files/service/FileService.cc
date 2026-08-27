@@ -1,89 +1,93 @@
 #include "FileService.hpp"
 
+static m_sylar::Logger::ptr j_logger = M_SYLAR_LOG_NAME("jettyCat");
+
 namespace JettyCat::file::service {
 
 namespace {
 
-// 访问模式字符串 -> 允许的 S3 动作集合
-bool accessToActions(const std::string& access_str, std::vector<policy::Action>& out) {
-    out.clear();
-    if (access_str == "write") {
-        out = {policy::Action::PutObject, policy::Action::DeleteObject};
-    } else if (access_str == "readwrite" || access_str == "read_write" || access_str == "read-write") {
-        out = {policy::Action::GetObject, policy::Action::PutObject,
-               policy::Action::DeleteObject, policy::Action::ListBucket};
-    } else if (access_str.empty() || access_str == "read") {
-        out = {policy::Action::GetObject, policy::Action::ListBucket};
-    } else {
-        return false;
+// 配置：获取凭证默认时长（秒），默认 3 小时
+m_sylar::ConfigVar<unsigned int>::ptr g_fetch_sts_duration =
+    m_sylar::ConfigManager::LookUp<unsigned int>("files.fetch.stsDurationSeconds", 10800,
+                                                 JettyCat_CONFIG_ID, "fetch sts default duration");
+
+// 解析非负整数，失败返回默认值
+unsigned int parseDuration(const std::string& duration_str, unsigned int def) {
+    if (duration_str.empty()) return def;
+    try {
+        return static_cast<unsigned int>(std::stoul(duration_str));
+    } catch (const std::exception&) {
+        return def;
     }
-    return true;
 }
 
 } // namespace
 
-[[nodiscard]] m_sylar::Task<chatter::resp::HttpResponse> FileService::getSts(
+[[nodiscard]] m_sylar::Task<chatter::resp::HttpResponse> FileService::getUploadSts(
     const JWT::Payload& payload,
-    const std::string& duration_str,
-    const std::string& resource_path,
-    const std::string& access_str) const {
+    const std::string& target_kind,
+    const std::string& target_id_str,
+    const std::string& file_hash,
+    const std::string& duration_str) const {
     chatter::resp::HttpResponse http_response;
 
-    // ---------- 访问模式解析（读写权限控制） ----------
-    // 默认只读，避免前端默认拿到写权限
-    std::vector<policy::Action> actions;
-    if (!accessToActions(access_str, actions)) {
-        http_response.setCode(400).setMsg(
-            "BAD_REQUEST: 'access' must be one of read / write / readwrite");
+    // ---------- 参数校验 ----------
+    if (target_kind != "user" && target_kind != "group") {
+        http_response.setCode(400).setMsg("BAD_REQUEST: 'kind' must be user or group");
+        co_return http_response;
+    }
+    int64_t target_id = 0;
+    try {
+        target_id = std::stoll(target_id_str);
+    } catch (const std::exception&) {
+        http_response.setCode(400).setMsg("BAD_REQUEST: invalid 'target' snow id");
+        co_return http_response;
+    }
+    if (target_id <= 0) {
+        http_response.setCode(400).setMsg("BAD_REQUEST: invalid 'target' snow id");
+        co_return http_response;
+    }
+    if (file_hash.empty() || file_hash.size() > 128) {
+        http_response.setCode(400).setMsg("BAD_REQUEST: invalid 'hash'");
         co_return http_response;
     }
 
-    // ---------- 资源路径权限规则 ----------
-    // 默认资源路径为该用户的专属目录: user/<user_id>/
-    // 规则（精确到资源路径）：
-    //   - 写(WRITE / READ_WRITE)：仅允许写自己的专属目录 user/<user_id>/，防止越权写他人文件
-    //   - 读(READ)：允许读任意 user/* 路径（用于查看好友/群分享的图片）
-    //                并兼容历史 uploads/* 前缀（重构前的旧对象 key）
-    const std::string user_prefix = "user/" + std::to_string(payload.user_id) + "/";
-    const bool is_write = (access_str == "write" || access_str == "readwrite" ||
-                           access_str == "read_write" || access_str == "read-write");
-    const std::string shared_prefix = "user/";   // 只读允许的共享空间前缀
-    const std::string legacy_prefix = "uploads/"; // 兼容旧对象 key
-
-    std::string effective_path;
-    if (resource_path.empty()) {
-        effective_path = user_prefix;
-    } else {
-        // 规范化: 去掉开头多余的 '/'，保证前缀比较稳定
-        std::string p = resource_path;
-        if (!p.empty() && p.front() == '/') p.erase(p.begin());
-        // 精确权限控制：
-        bool allowed = is_write
-                           ? (p.rfind(user_prefix, 0) == 0)
-                           : (p.rfind(shared_prefix, 0) == 0 || p.rfind(legacy_prefix, 0) == 0);
-        if (!allowed) {
+    // ---------- 越权校验：目标必须是自己的好友 / 已加入的群 ----------
+    if (target_kind == "user") {
+        int status = 0;
+        bool exists = false;
+        const auto st = co_await m_friend_dao->getFriendStatus(
+            payload.user_id, target_id, status, exists);
+        if (st != JettyCat::chat::DBState::SUCCESS || !exists ||
+            status != static_cast<int>(chatter::dao::FriendStatus::NORMAL)) {
             http_response.setCode(403).setMsg(
-                "FORBIDDEN: resource path is outside your access scope");
+                "FORBIDDEN: target is not your friend");
             co_return http_response;
         }
-        effective_path = p;
-    }
-
-    // ---------- 参数解析 ----------
-    unsigned int duration = 3600;
-    if (!duration_str.empty()) {
-        try {
-            duration = static_cast<unsigned int>(std::stoul(duration_str));
-        } catch (const std::exception&) {
-            duration = 3600;
+    } else { // group
+        std::vector<JettyCat::chat::groupId> joined;
+        const auto st = co_await m_group_dao->listJoinedGroupIds(payload.user_id, joined);
+        if (st != JettyCat::chat::DBState::SUCCESS ||
+            std::find(joined.begin(), joined.end(), target_id) == joined.end()) {
+            http_response.setCode(403).setMsg(
+                "FORBIDDEN: target group is not joined");
+            co_return http_response;
         }
     }
-    if (duration < 60) duration = 60;
-    if (duration > 7200) duration = 7200;
 
-    // ---------- 申请凭证 ----------
-    const dao::StsCredential cred =
-        co_await m_file_dao->assumeRole(duration, effective_path, actions);
+    // ---------- 对象 key：<目标snow_id>/<文件hash> ----------
+    const std::string object_key = std::to_string(target_id) + "/" + file_hash;
+
+    // ---------- 凭证时长：默认 900s(15min) ----------
+    // MinIO STS 的 DurationSeconds 最小值为 900 秒，低于此值返回 invalid token expiry
+    unsigned int duration = parseDuration(duration_str, 900);
+    if (duration < 900) duration = 900;
+    if (duration > 3600) duration = 3600;
+
+    // ---------- 写凭证：只允许 PutObject 到这一个对象 ----------
+    const policy::Policy policyDoc = dao::FileDao::buildObjectPolicy(
+        m_file_dao->getBucket(), object_key, {policy::Action::PutObject});
+    const dao::StsCredential cred = co_await m_file_dao->assumeRoleWithPolicy(duration, policyDoc);
     if (cred.accessKeyId.empty() || cred.secretAccessKey.empty() || cred.sessionToken.empty()) {
         http_response.setCode(500).setMsg("Failed to obtain STS credentials");
         co_return http_response;
@@ -93,8 +97,73 @@ bool accessToActions(const std::string& access_str, std::vector<policy::Action>&
     data["endpoint"]        = m_file_dao->getEndpoint();
     data["bucket"]          = m_file_dao->getBucket();
     data["region"]          = m_file_dao->getRegion();
-    data["resourcePath"]    = effective_path;   // 前端直传时应限定在该前缀下
-    data["access"]          = access_str.empty() ? "read" : access_str; // 回显实际访问模式
+    data["objectKey"]       = object_key;       // 前端直传应 PUT 到此对象
+    data["access"]          = "write";
+    data["accessKeyId"]     = cred.accessKeyId;
+    data["secretAccessKey"] = cred.secretAccessKey;
+    data["sessionToken"]    = cred.sessionToken;
+    data["expiration"]      = cred.expiration;
+
+    http_response.setCode(200).setMsg("ok").setData(data);
+    co_return http_response;
+}
+
+[[nodiscard]] m_sylar::Task<chatter::resp::HttpResponse> FileService::getFetchSts(
+    const JWT::Payload& payload,
+    const std::string& duration_str) const {
+    chatter::resp::HttpResponse http_response;
+
+    // ---------- 收集当前用户所有可读位置 ----------
+    // 1) 自己的目录：他人发给我的图片 <自己>/<hash>
+    // 2) 每个好友的目录：我发给好友的图片 <好友>/<hash>
+    // 3) 每个已加入群的目录：群聊图片 <群>/<hash>
+    // 4) 兼容历史对象 key：重构前图片存于 user/<id>/uploads/...，只读放开该前缀
+    std::vector<std::string> readable_paths;
+    readable_paths.push_back(std::to_string(payload.user_id) + "/");
+    readable_paths.push_back("user/");
+
+    nlohmann::json friends;
+    const auto fst = co_await m_friend_dao->listFriends(payload.user_id, friends);
+    if (fst != JettyCat::chat::DBState::SUCCESS) {
+        http_response.setCode(500).setMsg("Failed to load friend list");
+        co_return http_response;
+    }
+    for (const auto& f : friends) {
+        const std::string fid = f.value("friend_id", "");
+        if (!fid.empty()) readable_paths.push_back(fid + "/");
+    }
+
+    std::vector<JettyCat::chat::groupId> groups;
+    const auto gst = co_await m_group_dao->listJoinedGroupIds(payload.user_id, groups);
+    if (gst != JettyCat::chat::DBState::SUCCESS) {
+        http_response.setCode(500).setMsg("Failed to load group list");
+        co_return http_response;
+    }
+    for (const auto& gid : groups) {
+        readable_paths.push_back(std::to_string(gid) + "/");
+    }
+
+    // ---------- 凭证时长：默认 3 小时，可配置 ----------
+    unsigned int duration = parseDuration(duration_str, g_fetch_sts_duration->getValue());
+    if (duration < 300) duration = 300;
+    if (duration > 86400) duration = 86400;
+
+    // ---------- 读凭证：对全部可读位置授予读权限 ----------
+    const policy::Policy policyDoc = dao::FileDao::buildPrefixesPolicy(
+        m_file_dao->getBucket(), readable_paths,
+        {policy::Action::GetObject, policy::Action::ListBucket});
+    const dao::StsCredential cred = co_await m_file_dao->assumeRoleWithPolicy(duration, policyDoc);
+    if (cred.accessKeyId.empty() || cred.secretAccessKey.empty() || cred.sessionToken.empty()) {
+        http_response.setCode(500).setMsg("Failed to obtain STS credentials");
+        co_return http_response;
+    }
+
+    nlohmann::json data;
+    data["endpoint"]        = m_file_dao->getEndpoint();
+    data["bucket"]          = m_file_dao->getBucket();
+    data["region"]          = m_file_dao->getRegion();
+    data["readablePaths"]   = readable_paths;    // 该凭证可读的全部对象前缀
+    data["access"]          = "read";
     data["accessKeyId"]     = cred.accessKeyId;
     data["secretAccessKey"] = cred.secretAccessKey;
     data["sessionToken"]    = cred.sessionToken;

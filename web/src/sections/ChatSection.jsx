@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import Chat, { Bubble, useMessages } from '@chatui/core';
 import { useChat } from '../ws';
-import { requestSts, uploadObject, downloadObject } from '../minio';
+import { requestUploadSts, requestFetchSts, invalidateFetchSts, uploadObject, downloadObject } from '../minio';
 
 const toolbarIcon = (body) => `data:image/svg+xml,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#42454b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`
@@ -17,6 +17,13 @@ const TOOLBAR_ICONS = {
 };
 
 const HISTORY_PAGE = 10;
+
+// 计算文件 SHA-256（用于对象 key 中的文件 hash）
+async function sha256Hex(blob) {
+  const buf = await blob.arrayBuffer();
+  const digest = await crypto.subtle.digest('SHA-256', buf);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 function keyOf(kind, id) {
   return `${kind}:${id}`;
@@ -344,7 +351,7 @@ const entries = batch
     [myId, appendMsg, nextMessageId, recordLastMessage, sendMessage, resolveDisplayMeta]
   );
 
-  // 图片上传：申请 STS → 直传 MinIO → 以 image 消息发送对象 key
+  // 图片上传：申请"写凭证" → 直传 MinIO 单个对象 → 以 image 消息发送对象 key
   const handleImageSend = useCallback(
     async (file) => {
       const conv = activeRef.current;
@@ -355,9 +362,14 @@ const entries = batch
       try {
         showNotice('图片上传', '正在上传图片...');
         if (myId === null) throw new Error('用户身份未就绪');
-        // 写凭证严格限制在当前用户专属目录下
-        const sts = await requestSts({ access: 'write', path: `user/${myId}/` });
-        const objectKey = `user/${myId}/uploads/${Date.now()}-${file.name}`;
+        // 对象 key 由消息产生地决定：<目标snow_id>/<文件hash>
+        const hash = await sha256Hex(file);
+        const sts = await requestUploadSts({
+          kind: conv.kind,
+          target: conv.id,        // 私聊=接收者 snow_id，群聊=群 snow_id
+          hash,
+        });
+        const objectKey = sts.objectKey;
         await uploadObject(sts, objectKey, file, file.type || 'image/jpeg');
 
         const now = Math.floor(Date.now() / 1000);
@@ -563,7 +575,7 @@ async function toChatUiMessage(item, myId, prevDate = 0, resolveDisplayMeta = nu
   };
 }
 
-// 图片消息气泡：申请 STS → 直接向 MinIO GET 下载 → 渲染(不经后端中转)
+// 图片消息气泡：申请读凭证（带缓存，覆盖所有可读位置）→ 直接向 MinIO GET 下载 → 渲染(不经后端中转)
 function ImageBubble({ objectKey, onLoaded }) {
   const [src, setSrc] = useState(null);
   const [err, setErr] = useState(null);
@@ -573,12 +585,21 @@ function ImageBubble({ objectKey, onLoaded }) {
     let alive = true;
     (async () => {
       try {
-        // 只读凭证，限定到图片所在的资源路径（可读共享/好友的图片）
-        const imgDir = (objectKey || '').split('/').slice(0, -1).join('/') + '/';
-        const sts = await requestSts({ access: 'read', path: imgDir });
-        const { blob } = await downloadObject(sts, objectKey);
-        if (!alive) return;
-        setSrc(URL.createObjectURL(blob));
+        // 读凭证已缓存（默认 3h），只有过期/失败时才会重新申请
+        let sts = await requestFetchSts();
+        try {
+          const { blob } = await downloadObject(sts, objectKey);
+          if (!alive) return;
+          setSrc(URL.createObjectURL(blob));
+          return;
+        } catch (downloadErr) {
+          // 凭证过期或策略失效：强制刷新读凭证后重试一次
+          invalidateFetchSts();
+          sts = await requestFetchSts({ force: true });
+          const { blob } = await downloadObject(sts, objectKey);
+          if (!alive) return;
+          setSrc(URL.createObjectURL(blob));
+        }
       } catch (error) {
         if (alive) setErr(error.message || '图片加载失败');
       }
