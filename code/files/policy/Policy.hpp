@@ -60,7 +60,7 @@ public:
     Statement& addResource(const std::string& r)       { m_resources.push_back(r); return *this; }
     Statement& setResources(const std::vector<std::string>& r) { m_resources = r; return *this; }
     Statement& addNotResource(const std::string& r)    { m_not_resources.push_back(r); return *this; }
-    // 条件: 形如 addCondition(ConditionOp::StringEquals, "s3:prefix", {"user/17/"})
+    // 条件: 形如 addCondition(ConditionOp::StringEquals, "s3:prefix", {"17/"})
     Statement& addCondition(ConditionOp op, const std::string& key, std::vector<std::string> values);
 
     // ---- 序列化 / 反序列化 ----

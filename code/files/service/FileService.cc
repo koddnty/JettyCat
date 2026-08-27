@@ -117,10 +117,8 @@ unsigned int parseDuration(const std::string& duration_str, unsigned int def) {
     // 1) 自己的目录：他人发给我的图片 <自己>/<hash>
     // 2) 每个好友的目录：我发给好友的图片 <好友>/<hash>
     // 3) 每个已加入群的目录：群聊图片 <群>/<hash>
-    // 4) 兼容历史对象 key：重构前图片存于 user/<id>/uploads/...，只读放开该前缀
     std::vector<std::string> readable_paths;
     readable_paths.push_back(std::to_string(payload.user_id) + "/");
-    readable_paths.push_back("user/");
 
     nlohmann::json friends;
     const auto fst = co_await m_friend_dao->listFriends(payload.user_id, friends);

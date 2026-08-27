@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
+import { invalidateFetchSts } from './minio';
 
 const ChatContext = createContext(null);
 export const useChat = () => useContext(ChatContext);
@@ -305,6 +306,9 @@ export function ChatProvider({ children }) {
         return { code: 0, status: 'error', msg: '网络请求失败, 请稍后重试' };
       }
       if (data && data.code === 200) {
+        // 关系变更(加/删好友、加/退群、同意申请)会改变可读位置,
+        // 使读凭证缓存失效, 下次下载时重新申请以覆盖最新的可读范围
+        invalidateFetchSts();
         await refreshLists();
       }
       return data || { code: 500, status: 'error', msg: '服务端响应异常' };
@@ -482,6 +486,7 @@ export function ChatProvider({ children }) {
         const content = parseContent(message.content) || {};
         const friendName = content.friend_nickname || content.friend_username || String(message.from);
         showNotice('好友申请已通过', content.msg || `${friendName} 同意了你的好友申请`, friendName);
+        invalidateFetchSts();
         refreshLists();
         return;
       }

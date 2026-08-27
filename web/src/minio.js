@@ -115,7 +115,9 @@ async function requestUploadSts({ kind, target, hash, duration }) {
 }
 
 // ---- 读凭证缓存：长时有效，仅在过期或请求失败时重新申请 ----
-let fetchStsCache = null; // { sts, expiresAtMs }
+// fetchStsPromise 用于单飞：并发调用共享同一个进行中的请求，避免重复申请
+let fetchStsCache = null;     // { sts, expiresAtMs }
+let fetchStsPromise = null;   // 进行中的申请 Promise
 
 function cacheFetchSts(sts) {
   const expiresAtMs = Date.parse(sts.expiration);
@@ -126,16 +128,24 @@ function cacheFetchSts(sts) {
   };
 }
 
-// 向后端申请"读凭证"（覆盖当前用户所有可读位置），带缓存
-async function requestFetchSts({ force = false } = {}) {
-  if (!force && fetchStsCache && fetchStsCache.expiresAtMs > Date.now()) {
-    return fetchStsCache.sts;
-  }
+// 实际向后端申请读凭证（不缓存）
+async function requestFetchStsRaw() {
   const resp = await fetch('/api/files/fetch/sts', { method: 'POST', credentials: 'include' });
   const j = await resp.json();
   if (j.status !== 'success') throw new Error(j.error || j.msg || '读凭证申请失败');
   cacheFetchSts(j.data);
   return j.data;
+}
+
+// 向后端申请"读凭证"（覆盖当前用户所有可读位置），带缓存 + 单飞
+async function requestFetchSts({ force = false } = {}) {
+  if (!force && fetchStsCache && fetchStsCache.expiresAtMs > Date.now()) {
+    return fetchStsCache.sts;
+  }
+  if (!fetchStsPromise) {
+    fetchStsPromise = requestFetchStsRaw().finally(() => { fetchStsPromise = null; });
+  }
+  return fetchStsPromise;
 }
 
 // 上传对象, 返回对象 key
@@ -147,6 +157,7 @@ async function uploadObject(sts, key, blob, contentType) {
 // 读凭证失效/失败时强制刷新
 function invalidateFetchSts() {
   fetchStsCache = null;
+  fetchStsPromise = null;
 }
 
 // 下载对象为 Blob（失败时自动刷新读凭证并重试一次）

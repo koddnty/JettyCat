@@ -35,7 +35,7 @@ public:
      * @brief 申请 STS 临时凭证（精确到资源路径 + 访问模式）
      * @param durationSeconds  凭证有效时长（秒）
      * @param resourcePath     资源路径前缀（对象 key 前缀），为空则不限；
-     *                         形如 "user/17/" —— 凭证只能访问该前缀下的对象
+     *                         形如 "17/" —— 凭证只能访问该前缀下的对象
      * @param actions          允许的 S3 动作集合（精确到读写）
      * @return 临时凭证；失败时各字段为空串
      */
@@ -56,7 +56,7 @@ public:
     /**
      * @brief 便捷构造"读写路径策略"：把凭证限制在某个对象前缀下
      * @param bucket       桶名
-     * @param resourcePath 对象 key 前缀，形如 "user/17/"
+     * @param resourcePath 对象 key 前缀，形如 "17/"
      * @param actions      允许的动作集合（如 {GetObject, ListBucket} 只读）
      * @return 类型安全的策略对象
      */
